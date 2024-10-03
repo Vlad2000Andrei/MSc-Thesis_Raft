@@ -1,6 +1,7 @@
 package raft.common;
 
 import raft.network.Connection;
+import raft.network.MessageStatus;
 import raft.network.Node;
 import raft.network.SocketConnection;
 
@@ -10,33 +11,44 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.nio.channels.spi.SelectorProvider;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Condition;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class RaftServer extends Node<RaftMessage> {
 
-    private ServerSocket serverSocket;
+    private ServerSocketChannel serverSocketChannel;
     private ConcurrentHashMap<Node, SocketConnection<RaftMessage>> connections;
     private List<Node> clients;
     private List<Node> servers;
     private AtomicBoolean acceptingConnections;
     private Thread acceptingConnectionsThread;
     private Thread messageReceivingThread;
-    private final Map<Node, List<RaftMessage>> outgoingMessages;
-    private final Map<Node, List<RaftMessage>> incomingMessages;
+    private Thread messageSendingThread;
+    private final Map<Node<RaftMessage>, List<RaftMessage>> outgoingMessages;
+    private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
 
     public RaftServer(InetSocketAddress address) throws IOException {
         super(address);
-        serverSocket = new ServerSocket(address.getPort());
+        serverSocketChannel = ServerSocketChannel.open();
+        serverSocketChannel.bind(address);
         acceptingConnections = new AtomicBoolean();
         acceptingConnections.set(false);
 
-        outgoingMessages = new HashMap<>();
-        incomingMessages = new HashMap<>();
+        connections = new ConcurrentHashMap<>();
+        outgoingMessages = new ConcurrentHashMap<>();
+        incomingMessages = new ConcurrentLinkedQueue<>();
+        incomingMessageSelector = Selector.open();
 
         channelSelectionKeys = new ArrayList<>();
     }
@@ -44,19 +56,21 @@ public class RaftServer extends Node<RaftMessage> {
     public void start() {
         acceptConnections();
         startAcceptingMessages();
+        startSendingMessages();
     }
 
     private SocketConnection<RaftMessage> acceptConnection() throws IOException {
-        Socket socket = serverSocket.accept();
+        SocketChannel socketChannel = serverSocketChannel.accept();
         SocketConnection<RaftMessage> connection = new SocketConnection<RaftMessage>(
-                Arrays.toString(socket.getInetAddress().getAddress()),
-                socket.getPort(),
-                socket
+                Arrays.toString(socketChannel.socket().getInetAddress().getAddress()),
+                socketChannel.socket().getPort(),
+                socketChannel
         );
         return connection;
     }
 
-    public void acceptConnections() {
+    private void acceptConnections() {
+        acceptingConnections.set(true);
         Runnable acceptLoop = () -> {
             while (acceptingConnections.get()) {
                 try {
@@ -68,16 +82,17 @@ public class RaftServer extends Node<RaftMessage> {
                     SelectionKey selectionKey = connection.getNonBlockingChannel().register(incomingMessageSelector, SelectionKey.OP_READ);
                     selectionKey.attach(connection);
                     channelSelectionKeys.add(selectionKey);
+                    incomingMessageSelector.wakeup();
 
                 } catch (IOException e) {
                     System.out.println("[ERR] Failed to accept connection: " + e.getMessage());
 
-                    if (!serverSocket.isBound()) {
+                    if (!serverSocketChannel.socket().isBound()) {
                         acceptingConnections.set(false);
                         break;
                     }
 
-                    if (serverSocket.isClosed()) {
+                    if (serverSocketChannel.socket().isClosed()) {
                         acceptingConnections.set(false);
                         break;
                     }
@@ -98,6 +113,7 @@ public class RaftServer extends Node<RaftMessage> {
         List<RaftMessage> messageQueue =  outgoingMessages.getOrDefault(node, new ArrayList<>());
         messageQueue.add(message);
         outgoingMessages.put(node, messageQueue);
+        outgoingMessages.notifyAll();
     }
 
     public void queueMessage (RaftMessage message, List<Node<RaftMessage>> nodes) {
@@ -106,28 +122,78 @@ public class RaftServer extends Node<RaftMessage> {
         }
     }
 
-    public void acceptOneMessage(SocketConnection<RaftMessage> connection) {
+    private void acceptOneMessage(SocketConnection<RaftMessage> connection) {
         RaftMessage message = connection.receive();
-        Node<RaftMessage> sender = message.getSender();
-        List<RaftMessage> buffer = incomingMessages.getOrDefault(sender, new ArrayList<>());
-        buffer.add(message);
-        incomingMessages.put(sender, buffer);
+        System.out.println("[i] Accepted message: " + message);
+        incomingMessages.add(message);
+        incomingMessages.notifyAll();
     }
 
-    public void startAcceptingMessages() {
+    private void startAcceptingMessages() {
         messageReceivingThread = new Thread(() -> {
-            try {
-                incomingMessageSelector.select();
-                incomingMessageSelector.selectedKeys()
-                        .stream()
-                        .map((SelectionKey k) -> (SocketConnection<RaftMessage>) k.attachment())
-                        .forEach(this::acceptOneMessage);
+            while (true) {
+                try {
+                    incomingMessageSelector.select();
+                    incomingMessageSelector.selectedKeys()
+                            .stream()
+                            .map((SelectionKey k) -> (SocketConnection<RaftMessage>) k.attachment())
+                            .forEach(this::acceptOneMessage);
+                } catch (IOException e) {
+                    System.out.println("[ERR Could not select incoming messages: " + e.getMessage());
+                }
             }
-            catch (IOException e) {
-                System.out.println("[ERR Could not select incoming messages: " + e.getMessage());
+        });
+
+        messageReceivingThread.setDaemon(true);
+        messageReceivingThread.start();
+    }
+
+    public RaftMessage getNextMessage() {
+        synchronized (incomingMessages) {
+            while (incomingMessages.isEmpty()) {
+                try {
+                    incomingMessages.wait();
+                }
+                catch (InterruptedException e) {
+                    continue;
+                }
+            }
+        }
+        return incomingMessages.remove();
+    }
+
+    private boolean hasReadyMessages() {
+        return outgoingMessages.values().stream().anyMatch(new Predicate<List<RaftMessage>>() {
+            @Override
+            public boolean test(List<RaftMessage> raftMessages) {
+                return !raftMessages.isEmpty();
             }
         });
     }
 
+    private void startSendingMessages() {
+        messageSendingThread = new Thread(() -> {
+            while (!hasReadyMessages()) {
+                try {
+                    synchronized (outgoingMessages) {
+                        outgoingMessages.wait();
+                    }
+                } catch (InterruptedException e) {
+                    continue;
+                }
+            }
 
+            outgoingMessages.forEach((Node<RaftMessage> node, List<RaftMessage> messages) -> {
+                messages.stream()
+                        .filter((RaftMessage msg) -> msg.getStatus() == MessageStatus.READY)
+                        .forEach((RaftMessage msg) -> {
+                            connections.get(node).send(msg);
+                            msg.setStatus(MessageStatus.SENT);
+                        });
+            });
+        });
+
+        messageSendingThread.setDaemon(true);
+        messageSendingThread.start();
+    }
 }

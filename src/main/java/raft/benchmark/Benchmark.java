@@ -20,6 +20,9 @@ public class Benchmark {
             InetSocketAddress clientAddress = new InetSocketAddress("localhost", 55001);
             Node<RaftMessage> client = new Node<>(clientAddress);
             SocketConnection<RaftMessage> toServer = client.connectTo(server);
+
+            toServer.send(new RaftMessage("Hi"));
+            System.out.println(server.getNextMessage());
         }
         catch (Exception e) {
             e.printStackTrace();
