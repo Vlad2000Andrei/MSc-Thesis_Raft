@@ -2,21 +2,31 @@ package raft.network;
 
 import java.io.*;
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
+import java.time.Instant;
+import java.util.Locale;
 
-public class SocketConnection <T extends Serializable> implements Connection <T>, AutoCloseable {
+import com.fasterxml.jackson.core.json.async.NonBlockingByteBufferJsonParser;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.fasterxml.jackson.databind.ser.std.ByteBufferSerializer;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import raft.common.RaftMessage;
+import raft.common.RaftServer;
+
+
+public class SocketConnection implements Connection <RaftMessage>, AutoCloseable {
     private SocketChannel socketChannel;
-    private String remoteAddress;
-    private Integer remotePort;
-    private ObjectOutputStream outputStream;
-    private ObjectInputStream inputStream;
+
+    public Node<RaftMessage> endpoint;
 
     public SocketConnection (String remoteAddress, Integer remotePort, SocketChannel socketChannel) throws IOException {
-        this.remoteAddress = remoteAddress;
-        this.remotePort = remotePort;
+        this.endpoint = new Node<RaftMessage>(new InetSocketAddress(remoteAddress, remotePort));
         this.socketChannel = socketChannel;
-        outputStream = new ObjectOutputStream(socketChannel.socket().getOutputStream());
-        inputStream = new ObjectInputStream(socketChannel.socket().getInputStream());
     }
 
     public SocketConnection (String remoteAddress, Integer remotePort) throws IOException {
@@ -26,11 +36,22 @@ public class SocketConnection <T extends Serializable> implements Connection <T>
     }
 
     @Override
-    public boolean send(T value) {
+    public boolean send(RaftMessage value) {
         try {
-            // TODO: Fix with https://stackoverflow.com/questions/5638395/sending-objects-through-java-nio-non-blocking-sockets
-            outputStream.writeObject(value);
-            System.out.println("[i] Sent: " + value + " to " + socketChannel.socket().getInetAddress());
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
+
+            byte[] data = mapper.writeValueAsBytes(value);
+
+            ByteBuffer buf = ByteBuffer.allocate(Long.BYTES + data.length);
+            buf.putLong(data.length);
+            buf.put(data);
+
+            buf.flip();
+            socketChannel.write(buf);
+//            System.out.println(Thread.currentThread().getName() + " \tsent to " + endpoint.getInetSocketAddress() + "\t\t" + Instant.now());
+
+
             return true;
         }
         catch (IOException e) {
@@ -40,15 +61,29 @@ public class SocketConnection <T extends Serializable> implements Connection <T>
     }
 
     @Override
-    public T receive() {
+    public RaftMessage receive() {
         try {
-            System.out.println("Here");
-            T result = (T) inputStream.readObject();
-            System.out.println("[i] Received: " + result + " from " + socketChannel.socket().getInetAddress());
+//            System.out.println(Thread.currentThread().getName() + " \tWaiting for receive() from " + endpoint.getInetSocketAddress() + "\t\t" + Instant.now());
+            ObjectMapper mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
+
+            // Read data size
+            ByteBuffer sizeBuf = ByteBuffer.allocate(Long.BYTES);
+            socketChannel.read(sizeBuf);
+            sizeBuf.flip();
+            int dataSize = (int)sizeBuf.asLongBuffer().get();
+
+            // Read data
+            ByteBuffer dataBuf = ByteBuffer.allocate(dataSize);
+            socketChannel.read(dataBuf);
+            dataBuf.flip();
+
+            // Map back to T
+            RaftMessage result = mapper.readValue(dataBuf.array(), RaftMessage.class);
             return result;
         }
         catch (Exception e) {
-            System.out.println("[ERR] Could not write to socket connection.");
+            System.out.println("[ERR] Could not read from connection " + endpoint.getInetSocketAddress());
             e.printStackTrace();
             return null;
         }
@@ -64,11 +99,11 @@ public class SocketConnection <T extends Serializable> implements Connection <T>
     }
 
     public String getRemoteAddress() {
-        return remoteAddress;
+        return endpoint.getInetSocketAddress().getAddress().getHostAddress();
     }
 
     public Integer getRemotePort() {
-        return remotePort;
+        return endpoint.getInetSocketAddress().getPort();
     }
 
     public SocketChannel getNonBlockingChannel() throws IOException {

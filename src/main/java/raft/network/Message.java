@@ -3,7 +3,6 @@ package raft.network;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.Serializable;
-import java.net.SocketAddress;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -11,22 +10,28 @@ public interface Message extends Serializable, Comparable<Message> {
 
     Node<?> getSender();
 
-    Instant getDeliveryTime();
+    void setSender(Node sender);
+
+    String getMessage();
+
+    void setMessage(String message);
+
+    Instant deliveryTime();
 
     void setTimeout(Duration timeout);
 
-    Instant getTimeoutInstant();
+    Instant timeoutInstant();
 
     MessageStatus getStatus();
 
     void setStatus(MessageStatus status);
 
     default Boolean timedOut() {
-        return getTimeoutInstant().isBefore(Instant.now());
+        return timeoutInstant().isBefore(Instant.now());
     }
 
     @Override
     default int compareTo(@NotNull Message that) {
-        return getTimeoutInstant().compareTo(that.getTimeoutInstant());
+        return timeoutInstant().compareTo(that.timeoutInstant());
     }
 }

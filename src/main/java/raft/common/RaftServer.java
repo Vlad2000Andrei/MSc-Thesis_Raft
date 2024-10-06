@@ -1,39 +1,32 @@
 package raft.common;
 
-import raft.network.Connection;
 import raft.network.MessageStatus;
 import raft.network.Node;
 import raft.network.SocketConnection;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.nio.channels.spi.SelectorProvider;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Condition;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 
-public class RaftServer extends Node<RaftMessage> {
+public abstract class RaftServer extends Node<RaftMessage> {
 
     private ServerSocketChannel serverSocketChannel;
-    private ConcurrentHashMap<Node, SocketConnection<RaftMessage>> connections;
-    private List<Node> clients;
-    private List<Node> servers;
+    private ConcurrentHashMap<Node, SocketConnection> connections;
+    private List<Node<RaftMessage>> clients;
+    private List<Node<RaftMessage>> servers;
     private AtomicBoolean acceptingConnections;
     private Thread acceptingConnectionsThread;
     private Thread messageReceivingThread;
     private Thread messageSendingThread;
-    private final Map<Node<RaftMessage>, List<RaftMessage>> outgoingMessages;
+    private final ConcurrentHashMap<Node<RaftMessage>, Queue<RaftMessage>> outgoingMessages;
     private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
@@ -44,6 +37,9 @@ public class RaftServer extends Node<RaftMessage> {
         serverSocketChannel.bind(address);
         acceptingConnections = new AtomicBoolean();
         acceptingConnections.set(false);
+
+        clients = new LinkedList<>();
+        servers = new LinkedList<>();
 
         connections = new ConcurrentHashMap<>();
         outgoingMessages = new ConcurrentHashMap<>();
@@ -57,15 +53,17 @@ public class RaftServer extends Node<RaftMessage> {
         acceptConnections();
         startAcceptingMessages();
         startSendingMessages();
+        runRaft();
     }
 
-    private SocketConnection<RaftMessage> acceptConnection() throws IOException {
+    private SocketConnection acceptConnection() throws IOException {
         SocketChannel socketChannel = serverSocketChannel.accept();
-        SocketConnection<RaftMessage> connection = new SocketConnection<RaftMessage>(
+        SocketConnection connection = new SocketConnection(
                 Arrays.toString(socketChannel.socket().getInetAddress().getAddress()),
                 socketChannel.socket().getPort(),
                 socketChannel
         );
+
         return connection;
     }
 
@@ -74,11 +72,19 @@ public class RaftServer extends Node<RaftMessage> {
         Runnable acceptLoop = () -> {
             while (acceptingConnections.get()) {
                 try {
-                    SocketConnection<RaftMessage> connection = acceptConnection();
-                    InetSocketAddress remoteAddress = new InetSocketAddress(connection.getRemoteAddress(), connection.getRemotePort());
-                    Node<RaftMessage> remoteNode = new Node<>(remoteAddress);
+                    // Initialize connection details
+                    SocketConnection connection = acceptConnection();
+                    String remoteIP = connection.getNonBlockingChannel().socket().getInetAddress().getHostAddress();
+                    Integer remotePort = connection.getNonBlockingChannel().socket().getPort();
+                    // Store endpoint
+                    InetSocketAddress remoteAddress = new InetSocketAddress(remoteIP, remotePort);
+                    connection.endpoint = new Node<RaftMessage>(remoteAddress);
 
-                    connections.put(remoteNode, connection);
+                    // Store connection for reuse
+                    connections.put(connection.endpoint, connection);
+                    clients.add(connection.endpoint);
+
+                    // Register with incoming message listener
                     SelectionKey selectionKey = connection.getNonBlockingChannel().register(incomingMessageSelector, SelectionKey.OP_READ);
                     selectionKey.attach(connection);
                     channelSelectionKeys.add(selectionKey);
@@ -105,15 +111,21 @@ public class RaftServer extends Node<RaftMessage> {
         acceptingConnectionsThread.start();
     }
 
-    public Collection<SocketConnection<RaftMessage>> getConnections() {
+    public Collection<SocketConnection> getConnections() {
         return connections.values();
     }
 
     public void queueMessage (RaftMessage message, Node<RaftMessage> node) {
-        List<RaftMessage> messageQueue =  outgoingMessages.getOrDefault(node, new ArrayList<>());
-        messageQueue.add(message);
-        outgoingMessages.put(node, messageQueue);
-        outgoingMessages.notifyAll();
+        synchronized (outgoingMessages) {
+            if (node == null) {
+                System.out.println("AAAA");
+            }
+            Queue<RaftMessage> messageQueue = outgoingMessages.getOrDefault(node, new ConcurrentLinkedQueue<>());
+            messageQueue.add(message);
+            outgoingMessages.put(node, messageQueue);
+            outgoingMessages.notifyAll();
+        }
+//        System.out.println(Thread.currentThread().getName() + "\tQueued message " + message + " for " + node.getInetSocketAddress());
     }
 
     public void queueMessage (RaftMessage message, List<Node<RaftMessage>> nodes) {
@@ -122,11 +134,20 @@ public class RaftServer extends Node<RaftMessage> {
         }
     }
 
-    private void acceptOneMessage(SocketConnection<RaftMessage> connection) {
+    public void queueServerBroadcast (RaftMessage message) {
+        queueMessage(message, servers);
+    }
+    public void queueClientBroadcast (RaftMessage message) {
+        queueMessage(message, clients);
+    }
+
+    private void acceptOneMessage(SocketConnection connection) {
         RaftMessage message = connection.receive();
-        System.out.println("[i] Accepted message: " + message);
-        incomingMessages.add(message);
-        incomingMessages.notifyAll();
+        synchronized (incomingMessages) {
+            message.setSender(connection.endpoint);
+            incomingMessages.add(message);
+            incomingMessages.notifyAll();
+        }
     }
 
     private void startAcceptingMessages() {
@@ -136,7 +157,7 @@ public class RaftServer extends Node<RaftMessage> {
                     incomingMessageSelector.select();
                     incomingMessageSelector.selectedKeys()
                             .stream()
-                            .map((SelectionKey k) -> (SocketConnection<RaftMessage>) k.attachment())
+                            .map((SelectionKey k) -> (SocketConnection) k.attachment())
                             .forEach(this::acceptOneMessage);
                 } catch (IOException e) {
                     System.out.println("[ERR Could not select incoming messages: " + e.getMessage());
@@ -163,9 +184,9 @@ public class RaftServer extends Node<RaftMessage> {
     }
 
     private boolean hasReadyMessages() {
-        return outgoingMessages.values().stream().anyMatch(new Predicate<List<RaftMessage>>() {
+        return outgoingMessages.values().stream().anyMatch(new Predicate<Queue<RaftMessage>>() {
             @Override
-            public boolean test(List<RaftMessage> raftMessages) {
+        public boolean test(Queue<RaftMessage> raftMessages) {
                 return !raftMessages.isEmpty();
             }
         });
@@ -173,27 +194,30 @@ public class RaftServer extends Node<RaftMessage> {
 
     private void startSendingMessages() {
         messageSendingThread = new Thread(() -> {
-            while (!hasReadyMessages()) {
-                try {
-                    synchronized (outgoingMessages) {
-                        outgoingMessages.wait();
+            while (true) {
+                while (!hasReadyMessages()) {
+                    try {
+                        synchronized (outgoingMessages) {
+                            outgoingMessages.wait(100);
+                        }
+                    } catch (InterruptedException e) {
+                        continue;
                     }
-                } catch (InterruptedException e) {
-                    continue;
                 }
-            }
 
-            outgoingMessages.forEach((Node<RaftMessage> node, List<RaftMessage> messages) -> {
-                messages.stream()
-                        .filter((RaftMessage msg) -> msg.getStatus() == MessageStatus.READY)
-                        .forEach((RaftMessage msg) -> {
-                            connections.get(node).send(msg);
-                            msg.setStatus(MessageStatus.SENT);
-                        });
-            });
+                outgoingMessages.forEach((Node<RaftMessage> node, Queue<RaftMessage> messages) ->
+                        messages.forEach((RaftMessage msg) -> {
+                            if (msg.getStatus() == MessageStatus.READY) {
+                                connections.get(node).send(msg);
+                                msg.setStatus(MessageStatus.SENT);
+                            }
+                        }));
+            }
         });
 
         messageSendingThread.setDaemon(true);
         messageSendingThread.start();
     }
+
+    public abstract void runRaft();
 }

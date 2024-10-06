@@ -9,15 +9,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class Node<T extends Serializable> {
 
-    private InetSocketAddress inetSocketAddress;
+    private final InetSocketAddress inetSocketAddress;
 
     public Node (InetSocketAddress address) {
         inetSocketAddress = address;
     }
 
-    public SocketConnection<T> connectTo(Node<T> node) throws IOException {
+    public SocketConnection connectTo(Node<T> node) throws IOException {
         InetSocketAddress nodeAddress = node.getInetSocketAddress();
-        SocketConnection<T> connection = new SocketConnection<T>(nodeAddress.getAddress().getHostAddress(), nodeAddress.getPort());
+        SocketConnection connection = new SocketConnection(nodeAddress.getAddress().getHostAddress(), nodeAddress.getPort());
         return connection;
     }
 
