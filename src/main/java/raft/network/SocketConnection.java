@@ -4,6 +4,7 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
+import java.nio.LongBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
 import java.time.Instant;
@@ -50,12 +51,10 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             buf.flip();
             socketChannel.write(buf);
 //            System.out.println(Thread.currentThread().getName() + " \tsent to " + endpoint.getInetSocketAddress() + "\t\t" + Instant.now());
-
-
             return true;
         }
         catch (IOException e) {
-            System.out.println("[ERR] Could not write to socket connection.");
+            System.out.println("[ERR] Could not write to socket connection. (" + Thread.currentThread().getName() + ")");
             return false;
         }
     }
@@ -69,22 +68,24 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
 
             // Read data size
             ByteBuffer sizeBuf = ByteBuffer.allocate(Long.BYTES);
-            socketChannel.read(sizeBuf);
+            while (sizeBuf.position() < sizeBuf.capacity()) {
+                if (socketChannel.read(sizeBuf) == -1) return null;
+            }
             sizeBuf.flip();
             int dataSize = (int)sizeBuf.asLongBuffer().get();
 
             // Read data
             ByteBuffer dataBuf = ByteBuffer.allocate(dataSize);
-            socketChannel.read(dataBuf);
+            while (dataBuf.position() < dataBuf.capacity()) {
+                if (socketChannel.read(dataBuf) == -1) return null;
+            }
             dataBuf.flip();
 
             // Map back to T
-            RaftMessage result = mapper.readValue(dataBuf.array(), RaftMessage.class);
-            return result;
+            return mapper.readValue(dataBuf.array(), RaftMessage.class);
         }
-        catch (Exception e) {
-            System.out.println("[ERR] Could not read from connection " + endpoint.getInetSocketAddress());
-            e.printStackTrace();
+        catch (IOException e) {
+            System.out.println("[ERR] Could not read from connection " + endpoint.getInetSocketAddress() + " (" + Thread.currentThread().getName() + ")");
             return null;
         }
     }

@@ -1,59 +1,51 @@
 package raft.benchmark;
 
-import raft.classic.ClassicRaftServer;
 import raft.classic.EchoRaftServer;
 import raft.common.RaftMessage;
 import raft.common.RaftServer;
 import raft.network.Node;
 import raft.network.SocketConnection;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
 
 public class Benchmark {
 
     public static void main (String[] args) throws InterruptedException {
         System.out.println("Hello world!");
-
         try {
-            InetSocketAddress serverAddress = new InetSocketAddress("localhost", 55000);
-            RaftServer server = new EchoRaftServer(serverAddress);
-            new Thread(server::start).start();
-
-            new Thread(() -> Benchmark.stressTest(server, 55000)).start();
-            new Thread(() -> Benchmark.stressTest(server, 55001)).start();
-            new Thread(() -> Benchmark.stressTest(server, 55002)).start();
-            new Thread(() -> Benchmark.stressTest(server, 55003)).start();
-            new Thread(() -> Benchmark.stressTest(server, 55004)).start();
-            new Thread(() -> Benchmark.stressTest(server, 55005)).start();
-            new Thread(() -> Benchmark.stressTest(server, 55006)).start();
-//            new Thread(() -> Benchmark.stressTest(server, 55007)).start();
-//            new Thread(() -> Benchmark.stressTest(server, 55008)).start();
-//            new Thread(() -> Benchmark.stressTest(server, 55009)).start();
+            stressTestEcho(20, 1_000, 50000);
         }
         catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public static void stressTest (RaftServer server, int port)  {
-        System.out.println(Thread.currentThread().getName() + " starting stress test...");
+    public static void stressTestEcho (int workers, int nOpsPerWorker, int startPort) {
         try {
-            InetSocketAddress clientAddress = new InetSocketAddress("localhost", port);
-            Node<RaftMessage> client = new Node<>(clientAddress);
-            SocketConnection toServer = client.connectTo(server);
+            System.out.printf("[i] Starting stress test with %s workers, performing %s operations each.\n", workers, nOpsPerWorker);
+            InetSocketAddress serverAddress = new InetSocketAddress("localhost", startPort);
+            RaftServer server = new EchoRaftServer(serverAddress);
+            List<Runnable> runnables = new ArrayList<>();
 
-            for (int i = 0; i < 1000000; i++) {
-                toServer.send(new RaftMessage("Message #" + i));
-//                System.out.println(toServer.receive());
-                toServer.receive();
+            new Thread(server::start).start();
+
+            for (int i = 1; i <= workers; i++) {
+                runnables.add(new StressTestWorker(server, nOpsPerWorker, startPort + i));
             }
-            System.out.println(Thread.currentThread().getName() + " finished stress test!");
-        }
-        catch (Exception e) {
-            System.out.println(Thread.currentThread().getName() + " failed stress test!");
-            throw new RuntimeException(e);
+
+            List<Thread> threads = runnables.stream().map(Thread::new).toList();
+            threads.forEach(Thread::start);
+            for (Thread thread : threads) {
+                thread.join();
+            }
+            Thread.sleep(1000);
+            System.out.println("[i] Stress test completed!");
+        } catch (Exception e) {
+            System.out.println("[ERR] Stress test failed!");
+            e.printStackTrace();
         }
     }
-
 }

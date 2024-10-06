@@ -1,5 +1,6 @@
 package raft.common;
 
+import org.jetbrains.annotations.NotNull;
 import raft.network.MessageStatus;
 import raft.network.Node;
 import raft.network.SocketConnection;
@@ -30,6 +31,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
     private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
+    private int received = 0;
+    private int sent = 0;
 
     public RaftServer(InetSocketAddress address) throws IOException {
         super(address);
@@ -56,6 +59,25 @@ public abstract class RaftServer extends Node<RaftMessage> {
         runRaft();
     }
 
+    private void discardConnection (SocketConnection connection) {
+        try {
+            System.out.printf("[i] Discarding connection to %s : %s. Remaining connections: %s.\n",
+                    connection.getNonBlockingChannel().socket().getInetAddress().getHostAddress(),
+                    connection.getNonBlockingChannel().socket().getPort(),
+                    connections.size() - 1);
+
+            clients.remove(connection.endpoint);
+            servers.remove(connection.endpoint);
+            outgoingMessages.remove(connection.endpoint);
+            connections.remove(connection.endpoint);
+            connection.getNonBlockingChannel().close();
+
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     private SocketConnection acceptConnection() throws IOException {
         SocketChannel socketChannel = serverSocketChannel.accept();
         SocketConnection connection = new SocketConnection(
@@ -79,6 +101,10 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     // Store endpoint
                     InetSocketAddress remoteAddress = new InetSocketAddress(remoteIP, remotePort);
                     connection.endpoint = new Node<RaftMessage>(remoteAddress);
+                    System.out.printf("[i] (%s) Client (%s) connected on local port %s.\n",
+                            Thread.currentThread().getName(),
+                            remoteAddress.toString(),
+                            connection.getNonBlockingChannel().socket().getLocalPort());
 
                     // Store connection for reuse
                     connections.put(connection.endpoint, connection);
@@ -115,11 +141,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
         return connections.values();
     }
 
-    public void queueMessage (RaftMessage message, Node<RaftMessage> node) {
+    public void queueMessage (RaftMessage message, @NotNull Node<RaftMessage> node) {
         synchronized (outgoingMessages) {
-            if (node == null) {
-                System.out.println("AAAA");
-            }
             Queue<RaftMessage> messageQueue = outgoingMessages.getOrDefault(node, new ConcurrentLinkedQueue<>());
             messageQueue.add(message);
             outgoingMessages.put(node, messageQueue);
@@ -143,8 +166,13 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
     private void acceptOneMessage(SocketConnection connection) {
         RaftMessage message = connection.receive();
+        received++;
+        if (message == null) {
+            discardConnection(connection);
+            return;
+        }
+        message.setSender(connection.endpoint);
         synchronized (incomingMessages) {
-            message.setSender(connection.endpoint);
             incomingMessages.add(message);
             incomingMessages.notifyAll();
         }
@@ -208,7 +236,12 @@ public abstract class RaftServer extends Node<RaftMessage> {
                 outgoingMessages.forEach((Node<RaftMessage> node, Queue<RaftMessage> messages) ->
                         messages.forEach((RaftMessage msg) -> {
                             if (msg.getStatus() == MessageStatus.READY) {
-                                connections.get(node).send(msg);
+                                SocketConnection receiver = connections.get(node);
+                                boolean success = receiver.send(msg);
+                                sent++;
+                                if (!success) {
+                                    discardConnection(receiver);
+                                }
                                 msg.setStatus(MessageStatus.SENT);
                             }
                         }));
