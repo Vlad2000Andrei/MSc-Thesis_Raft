@@ -13,6 +13,7 @@ public class StandaloneServer {
         try {
             InetSocketAddress serverAddress = new InetSocketAddress("localhost", startPort);
             RaftServer server = new EchoRaftServer(serverAddress);
+            server.start();
         }
         catch (Exception e) {
             e.printStackTrace();
