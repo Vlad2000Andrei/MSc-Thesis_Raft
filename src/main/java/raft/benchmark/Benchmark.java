@@ -1,28 +1,30 @@
 package raft.benchmark;
 
 import raft.classic.EchoRaftServer;
-import raft.common.RaftMessage;
+import raft.messaging.common.RaftMessage;
 import raft.common.RaftServer;
 import raft.network.Node;
-import raft.network.SocketConnection;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Callable;
 
 public class Benchmark {
 
     public static void main (String[] args) throws InterruptedException {
         System.out.println("Hello world!");
         try {
-            stressTestEcho(7, 1_000, 50000);
+            // Benchmark with remote server
+//            Node<RaftMessage> server = new Node<>(new InetSocketAddress("192.168.0.106",55000));
+//            stressTestEcho(10, 10_000, 50000, server);
+
+            // Benchmark with local server
+            stressTestEcho(8, 10000, 55000);
         }
         catch (Exception e) {
             e.printStackTrace();
         }
     }
-
 
     public static void stressTestEcho (int workers, int nOpsPerWorker, int startPort, Node<RaftMessage> server) {
         try {

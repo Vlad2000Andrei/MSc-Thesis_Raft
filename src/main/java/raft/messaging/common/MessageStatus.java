@@ -1,4 +1,4 @@
-package raft.network;
+package raft.messaging.common;
 
 public enum MessageStatus {
     READY,

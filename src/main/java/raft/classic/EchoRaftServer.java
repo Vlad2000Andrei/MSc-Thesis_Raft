@@ -1,6 +1,6 @@
 package raft.classic;
 
-import raft.common.RaftMessage;
+import raft.messaging.common.RaftMessage;
 import raft.common.RaftServer;
 
 import java.io.IOException;

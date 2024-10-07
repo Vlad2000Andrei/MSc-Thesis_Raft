@@ -1,7 +1,8 @@
 package raft.common;
 
 import org.jetbrains.annotations.NotNull;
-import raft.network.MessageStatus;
+import raft.messaging.common.MessageStatus;
+import raft.messaging.common.RaftMessage;
 import raft.network.Node;
 import raft.network.SocketConnection;
 
@@ -11,14 +12,18 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 public abstract class RaftServer extends Node<RaftMessage> {
 
+    public final int sequenceNr;
+    private static AtomicInteger nextSequenceNr = new AtomicInteger(0);
     private ServerSocketChannel serverSocketChannel;
     private ConcurrentHashMap<Node, SocketConnection> connections;
     private List<Node<RaftMessage>> clients;
@@ -28,14 +33,14 @@ public abstract class RaftServer extends Node<RaftMessage> {
     private Thread messageReceivingThread;
     private Thread messageSendingThread;
     private final ConcurrentHashMap<Node<RaftMessage>, Queue<RaftMessage>> outgoingMessages;
+    private final Timer timeoutTimer;
     private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
-    private int received = 0;
-    private int sent = 0;
 
     public RaftServer(InetSocketAddress address) throws IOException {
         super(address);
+        sequenceNr = nextSequenceNr.getAndIncrement();
         serverSocketChannel = ServerSocketChannel.open();
         serverSocketChannel.bind(address);
         acceptingConnections = new AtomicBoolean();
@@ -50,6 +55,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
         incomingMessageSelector = Selector.open();
 
         channelSelectionKeys = new ArrayList<>();
+        timeoutTimer = new Timer("Timeout Timer");
     }
 
     public void start() {
@@ -100,10 +106,10 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     Integer remotePort = connection.getNonBlockingChannel().socket().getPort();
                     // Store endpoint
                     InetSocketAddress remoteAddress = new InetSocketAddress(remoteIP, remotePort);
-                    connection.endpoint = new Node<RaftMessage>(remoteAddress);
+                    connection.endpoint = new Node<>(remoteAddress);
                     System.out.printf("[i] (%s) Client (%s) connected on local port %s.\n",
                             Thread.currentThread().getName(),
-                            remoteAddress.toString(),
+                            remoteAddress,
                             connection.getNonBlockingChannel().socket().getLocalPort());
 
                     // Store connection for reuse
@@ -154,6 +160,10 @@ public abstract class RaftServer extends Node<RaftMessage> {
     public void queueMessage (RaftMessage message, List<Node<RaftMessage>> nodes) {
         for (Node<RaftMessage> node : nodes) {
             queueMessage(message, node);
+
+            if (message.getTimeout() != null) {
+                scheduleMessageTimeout(message);
+            }
         }
     }
 
@@ -166,7 +176,6 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
     private void acceptOneMessage(SocketConnection connection) {
         RaftMessage message = connection.receive();
-        received++;
         if (message == null) {
             discardConnection(connection);
             return;
@@ -212,12 +221,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     private boolean hasReadyMessages() {
-        return outgoingMessages.values().stream().anyMatch(new Predicate<Queue<RaftMessage>>() {
-            @Override
-        public boolean test(Queue<RaftMessage> raftMessages) {
-                return !raftMessages.isEmpty();
-            }
-        });
+        return outgoingMessages.values().stream().anyMatch(raftMessages -> !raftMessages.isEmpty());
     }
 
     private void startSendingMessages() {
@@ -226,7 +230,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
                 while (!hasReadyMessages()) {
                     try {
                         synchronized (outgoingMessages) {
-                            outgoingMessages.wait(100);
+                            outgoingMessages.wait();
                         }
                     } catch (InterruptedException e) {
                         continue;
@@ -235,21 +239,31 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
                 outgoingMessages.forEach((Node<RaftMessage> node, Queue<RaftMessage> messages) ->
                         messages.forEach((RaftMessage msg) -> {
-                            if (msg.getStatus() == MessageStatus.READY) {
-                                SocketConnection receiver = connections.get(node);
-                                boolean success = receiver.send(msg);
-                                sent++;
-                                if (!success) {
-                                    discardConnection(receiver);
-                                }
-                                msg.setStatus(MessageStatus.SENT);
+                            SocketConnection receiver = connections.get(node);
+                            boolean success = receiver.send(msg);
+                            if (!success) {
+                                discardConnection(receiver);
                             }
-                        }));
+                        })
+                );
             }
         });
 
         messageSendingThread.setDaemon(true);
         messageSendingThread.start();
+    }
+
+    private TimerTask scheduleMessageTimeout(RaftMessage message) {
+        queueMessage(message, message.getReceiver());
+        TimerTask timerTask = new TimerTask() {
+            @Override
+            public void run() {
+                queueMessage(message, message.getReceiver());
+            }
+        };
+
+        timeoutTimer.scheduleAtFixedRate(timerTask, message.getTimeout().toMillis(), message.getTimeout().toMillis());
+        return timerTask;
     }
 
     public abstract void runRaft();

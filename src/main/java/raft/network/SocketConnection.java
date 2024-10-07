@@ -3,21 +3,11 @@ package raft.network;
 import java.io.*;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
-import java.nio.LongBuffer;
-import java.nio.channels.Channels;
 import java.nio.channels.SocketChannel;
-import java.time.Instant;
-import java.util.Locale;
 
-import com.fasterxml.jackson.core.json.async.NonBlockingByteBufferJsonParser;
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.databind.ser.std.ByteBufferSerializer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import raft.common.RaftMessage;
-import raft.common.RaftServer;
+import raft.messaging.common.RaftMessage;
 
 
 public class SocketConnection implements Connection <RaftMessage>, AutoCloseable {
