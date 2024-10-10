@@ -7,6 +7,7 @@ import raft.network.SocketConnection;
 import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 
 public class StressTestWorker implements Runnable {
 
@@ -22,8 +23,10 @@ public class StressTestWorker implements Runnable {
 
     @Override
     public void run() {
+        Thread.currentThread().setName("Client " + port);
         System.out.println(Thread.currentThread().getName() + " starting stress test...");
         try {
+            Thread.sleep(2000);
             InetSocketAddress clientAddress = new InetSocketAddress("localhost", port);
             Node<RaftMessage> client = new Node<>(clientAddress);
             SocketConnection toServer = client.connectTo(server);
@@ -32,18 +35,21 @@ public class StressTestWorker implements Runnable {
                     toServer.getNonBlockingChannel().socket().getLocalPort(),
                     toServer.getNonBlockingChannel().socket().getPort());
 
-
+            // start timing
             int progressStepSize = opCount / 10;
             Instant startTime = Instant.now();
             Instant currentIntervalStart = Instant.now();
-            for (int i = 1; i <= opCount; i++) {
-                String content = "Message #" + i;
-//                toServer.send(new RaftMessage(content));
-                // TODO fix these
-//                if (!toServer.receive().message.equals(content)) {
-//                    throw new RuntimeException("Received message does not match sent message!");
-//                }
 
+            for (int i = 1; i <= opCount; i++) {
+                RaftMessage msg = new RaftMessage(null, null, null);
+                toServer.send(msg);
+//                Thread.sleep(5000);
+                RaftMessage response = toServer.receive();
+                if(response.ackNr != msg.sequenceNr) {
+                    throw new RuntimeException("Received message does not match sent one!");
+                }
+
+                // print progress and calculate throughput
                 if (i % progressStepSize == 0) {
                     double secondsElapsed = Duration.between(currentIntervalStart, Instant.now()).toMillis() / 1000.0;
                     double opsPerSec = progressStepSize / secondsElapsed;
@@ -51,6 +57,8 @@ public class StressTestWorker implements Runnable {
                     currentIntervalStart = Instant.now();
                 }
             }
+
+            // stop timing
             double secondsElapsedTotal = Duration.between(startTime, Instant.now()).toMillis() / 1000.0;
             double opsPerSecTotal = opCount / secondsElapsedTotal;
 

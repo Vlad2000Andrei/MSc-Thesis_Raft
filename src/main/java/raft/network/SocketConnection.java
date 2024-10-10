@@ -4,6 +4,11 @@ import java.io.*;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -16,7 +21,7 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
     public Node<RaftMessage> endpoint;
 
     public SocketConnection (String remoteAddress, Integer remotePort, SocketChannel socketChannel) throws IOException {
-        this.endpoint = new Node<RaftMessage>(new InetSocketAddress(remoteAddress, remotePort));
+        this.endpoint = new Node<>(new InetSocketAddress(remoteAddress, remotePort));
         this.socketChannel = socketChannel;
     }
 
@@ -37,10 +42,10 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             ByteBuffer buf = ByteBuffer.allocate(Long.BYTES + data.length);
             buf.putLong(data.length);
             buf.put(data);
+//            System.out.printf("%s sending: %s\n", Thread.currentThread().getName(), new String(data));
 
             buf.flip();
             socketChannel.write(buf);
-//            System.out.println(Thread.currentThread().getName() + " \tsent to " + endpoint.getInetSocketAddress() + "\t\t" + Instant.now());
             return true;
         }
         catch (IOException e) {
@@ -52,7 +57,6 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
     @Override
     public RaftMessage receive() {
         try {
-//            System.out.println(Thread.currentThread().getName() + " \tWaiting for receive() from " + endpoint.getInetSocketAddress() + "\t\t" + Instant.now());
             ObjectMapper mapper = new ObjectMapper();
             mapper.registerModule(new JavaTimeModule());
 
@@ -69,13 +73,15 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             while (dataBuf.position() < dataBuf.capacity()) {
                 if (socketChannel.read(dataBuf) == -1) return null;
             }
+//            System.out.printf("%s received: %s\n", Thread.currentThread().getName(), new String(dataBuf.array()));
             dataBuf.flip();
 
             // Map back to T
             return mapper.readValue(dataBuf.array(), RaftMessage.class);
         }
         catch (IOException e) {
-            System.out.println("[ERR] Could not read from connection " + endpoint.getInetSocketAddress() + " (" + Thread.currentThread().getName() + ")");
+            System.out.printf("[ERR] Could not read from connection %s (%s)\n", endpoint.getInetSocketAddress(), Thread.currentThread().getName());
+            e.printStackTrace();
             return null;
         }
     }

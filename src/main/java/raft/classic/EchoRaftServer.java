@@ -17,7 +17,8 @@ public class EchoRaftServer extends RaftServer {
     public void runRaft() {
         while (true) {
             RaftMessage msg = getNextMessage();
-            queueMessage(msg, msg.getSender());
+            RaftMessage response = new RaftMessage(msg.sequenceNr);
+            queueMessage(response, msg.getSender());
         }
     }
 }

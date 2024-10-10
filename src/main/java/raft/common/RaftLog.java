@@ -11,13 +11,13 @@ import java.util.stream.BaseStream;
 public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
     private List<LogEntry> entries;
-    private int committedIndex;
-    private int lastApplied;
+    public int committedIndex;
+    public int lastApplied;
 
     public RaftLog() {
-        entries = new ArrayList<>();
-        committedIndex = -1;
-        lastApplied = -1;
+        entries = List.of(new LogEntry(0));
+        committedIndex = 0;
+        lastApplied = 0;
     }
 
     public LogEntry get(int index) {
@@ -25,12 +25,10 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     }
 
     public boolean add(LogEntry entry) {
+        lastApplied++;
         return entries.add(entry);
     }
 
-    public boolean addAll(Collection<LogEntry> entryList) {
-        return entries.addAll(entryList);
-    }
 
     public List<LogEntry> getEntries() {
         return new ArrayList<>(entries);
