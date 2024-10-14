@@ -2,6 +2,7 @@ package raft.messaging.common;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import raft.messaging.internal.AppendEntries;
 import raft.messaging.internal.RequestVote;
@@ -44,6 +45,17 @@ public class RaftMessage implements Message, Serializable {
         this.ackNr = ackNr;
 
         timeout = null;
+    }
+
+    public RaftMessage(@NotNull RaftMessage toCopy) {
+        this(toCopy.controlMessage,
+                toCopy.appendEntries,
+                toCopy.requestVote,
+                toCopy.ackNr,
+                -1);
+        setReceiver(toCopy.getReceiver());
+        setSender(toCopy.getSender());
+        setTimeout(toCopy.getTimeout());
     }
 
     public RaftMessage(@Nullable ControlMessage ctrl, @Nullable AppendEntries append, @Nullable RequestVote reqVote) {
@@ -96,14 +108,16 @@ public class RaftMessage implements Message, Serializable {
 
     @JsonIgnore
     @Override
-    public void setTimeout(Duration timeout) {
+    public RaftMessage setTimeout(Duration timeout) {
         this.timeout = timeout;
+        return this;
     }
 
     @JsonIgnore
     @Override
-    public void setReceiver(Node<RaftMessage> receiver) {
+    public RaftMessage setReceiver(Node<RaftMessage> receiver) {
         this.receiver = receiver;
+        return this;
     }
 
     public ControlMessage getControlMessage() {
@@ -133,15 +147,27 @@ public class RaftMessage implements Message, Serializable {
         return sequenceNr;
     }
 
-    public void setSequenceNr(long sequenceNr) {
+    public RaftMessage setSequenceNr(long sequenceNr) {
         this.sequenceNr = sequenceNr;
+        return this;
     }
 
     public long getAckNr() {
         return ackNr;
     }
 
-    public void setAckNr(long ackNr) {
+    public RaftMessage setAckNr(long ackNr) {
         this.ackNr = ackNr;
+        return this;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("SEQ: %d \tACK: %d \tCTRL: %s \tRV: %s \tAE: %s",
+                sequenceNr,
+                ackNr,
+                controlMessage,
+                requestVote,
+                appendEntries);
     }
 }

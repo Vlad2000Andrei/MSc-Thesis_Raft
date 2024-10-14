@@ -72,11 +72,14 @@ public class Benchmark {
     public static void spawnServers() throws IOException {
         RaftServer server1 = new ClassicRaftServer(new InetSocketAddress("localhost", 55000));
         RaftServer server2 = new ClassicRaftServer(new InetSocketAddress("localhost", 55001));
+        RaftServer server3 = new ClassicRaftServer(new InetSocketAddress("localhost", 55002));
         server1.id = 0;
         server2.id = 1;
+        server3.id = 2;
 
-        Configuration config = new Configuration(List.of(server1, server2));
+        Configuration config = new Configuration(List.of(server1, server2, server3));
         new Thread(() -> server1.start(config)).start();
         new Thread(() -> server2.start(config)).start();
+        new Thread(() -> server3.start(config)).start();
     }
 }

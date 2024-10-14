@@ -17,11 +17,13 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
@@ -38,10 +40,13 @@ public abstract class RaftServer extends Node<RaftMessage> {
     private Thread messageSendingThread;
     private final ConcurrentHashMap<Node<RaftMessage>, Queue<RaftMessage>> outgoingMessages;
     protected final Timer timeoutTimer;
+    protected Configuration clusterConfig;
     private Map<Long, TimerTask> timedMessages;
     private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
+    protected Instant lastLeaderContact;
+
 
     public RaftServer(InetSocketAddress address) throws IOException {
         super(address);
@@ -64,36 +69,44 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     public void start(Configuration config) {
+        this.clusterConfig = config;
+
         // Start the different worker threads
         acceptConnections();
         startAcceptingMessages();
         startSendingMessages();
+        connectToServers();
+        try {
+            Thread.sleep(100);
+        }
+        catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        runRaft();
+    }
 
-        // Connect to the servers
-        final int ATTEMPTS = 5;
-        for (int i = 0; i < config.servers().size(); i++) {
-            if (i == this.id) continue;
+    private void connectToServers() {
+        final int ATTEMPTS = 30;
+        for (int i = 0; i < clusterConfig.servers().size(); i++) {
+            if (i == id) continue;
             for (int j = 0; j < ATTEMPTS; j++) {
                 try {
-                    Thread.sleep(100);
+                    Thread.sleep(500);
 
-                    Node<RaftMessage> peer = config.servers().get(i);
+                    Node<RaftMessage> peer = clusterConfig.servers().get(i);
                     SocketConnection connection = connectTo(peer);
                     connection.endpoint = peer;
-                    System.out.printf("[i] Connected to peer %s.\n", peer.getInetSocketAddress());
+                    System.out.printf("[i] Server %d connected to peer %s.\n", id, peer.getInetSocketAddress());
 
                     connection.send(new RaftMessage(new ControlMessage(ControlMessageType.HELLO_SERVER, true, -1)));
                     servers.add(peer);
                     registerConnection(connection);
                     break;
                 } catch (Exception e) {
-                    System.out.printf("[i] Failed to connect to peer %s. Retrying...", config.servers().get(i).getInetSocketAddress());
+                    System.out.printf("[i] Server %d failed to connect to peer %s. Retrying...", id, clusterConfig.servers().get(i).getInetSocketAddress());
                 }
             }
         }
-
-
-        runRaft();
     }
 
     private void discardConnection (SocketConnection connection) {
@@ -181,22 +194,25 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     public void queueMessage (RaftMessage message, @NotNull Node<RaftMessage> node) {
+        message.setReceiver(node);
         synchronized (outgoingMessages) {
             Queue<RaftMessage> messageQueue = outgoingMessages.getOrDefault(node, new ConcurrentLinkedQueue<>());
             messageQueue.add(message);
             outgoingMessages.put(node, messageQueue);
             outgoingMessages.notifyAll();
+
+            if (message.getTimeout() != null) {
+                scheduleMessageTimeout(message);
+            }
         }
+
 //        System.out.println(Thread.currentThread().getName() + "\tQueued message " + message + " for " + node.getInetSocketAddress());
     }
 
     public void queueMessage (RaftMessage message, List<Node<RaftMessage>> nodes) {
         for (Node<RaftMessage> node : nodes) {
-            queueMessage(message, node);
-
-            if (message.getTimeout() != null) {
-                scheduleMessageTimeout(message);
-            }
+            message.setReceiver(node);
+            queueMessage(new RaftMessage(message), node);
         }
     }
 
@@ -218,6 +234,13 @@ public abstract class RaftServer extends Node<RaftMessage> {
         synchronized (incomingMessages) {
             incomingMessages.add(message);
             incomingMessages.notifyAll();
+        }
+
+        synchronized (timedMessages) {
+            TimerTask scheduledResend = timedMessages.remove(message.ackNr);    // so that it stops re-sending
+            if (scheduledResend != null) {
+                scheduledResend.cancel();
+            }
         }
     }
 
@@ -278,6 +301,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
                         while (!messages.isEmpty()) {
                             RaftMessage msg = messages.remove();
                             SocketConnection receiver = connections.get(node);
+                            System.out.printf("[Sender] Server %d sent: %s to %s\n", id, msg, node.getInetSocketAddress());
                             if (receiver == null) {
                                 return;
                             }
@@ -297,7 +321,9 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     private TimerTask scheduleMessageTimeout(RaftMessage message) {
-        queueMessage(message, message.getReceiver());
+        if (timedMessages.containsKey(message.sequenceNr))
+            return timedMessages.get(message.sequenceNr);
+
         TimerTask timerTask = new TimerTask() {
             @Override
             public void run() {

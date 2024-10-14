@@ -61,4 +61,23 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     public boolean asUpToDateAs(RaftLog log) {
         return compareTo(log) >= 0;
     }
+
+    public boolean otherAsUpToDateAsThis(int otherLastTerm, int otherLastAppliedIdx) {
+        boolean result;
+        if (entries.getLast().term() != otherLastTerm) {
+            result = entries.getLast().term() < otherLastTerm;
+        }
+        else {
+            result = lastApplied <= otherLastAppliedIdx;
+        }
+        return result;
+    }
+
+    public LogEntry getLast() {
+        return entries.getLast();
+    }
+
+    public int getLastIndex() {
+        return entries.size() - 1;
+    }
 }

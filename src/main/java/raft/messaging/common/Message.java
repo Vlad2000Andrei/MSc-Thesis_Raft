@@ -15,10 +15,10 @@ public interface Message extends Serializable {
 
     Node<RaftMessage> getReceiver();
 
-    void setReceiver(Node<RaftMessage> receiver);
+    Message setReceiver(Node<RaftMessage> receiver);
 
     Duration getTimeout();
 
-    void setTimeout(Duration timeout);
+    Message setTimeout(Duration timeout);
 
 }
