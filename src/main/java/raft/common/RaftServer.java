@@ -29,20 +29,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 public abstract class RaftServer extends Node<RaftMessage> {
+    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
+    protected final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(1000);
+    protected final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(2000);
+    protected final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(200);
+    protected Duration electionTimeout;
+    protected Instant electionTimeoutStartInstant;
+
 
     private ServerSocketChannel serverSocketChannel;
     private ConcurrentHashMap<Node, SocketConnection> connections;
-    protected List<Node<RaftMessage>> clients;
-    protected List<Node<RaftMessage>> servers;
+    protected HashSet<Node<RaftMessage>> clients;
+    protected HashSet<Node<RaftMessage>> servers;
     private AtomicBoolean acceptingConnections;
     private Thread acceptingConnectionsThread;
     private Thread messageReceivingThread;
     private Thread messageSendingThread;
-    private final ConcurrentHashMap<Node<RaftMessage>, Queue<RaftMessage>> outgoingMessages;
+    private final LinkedBlockingQueue<RaftMessage> outgoingMessages;
     protected final Timer timeoutTimer;
     protected Configuration clusterConfig;
-    private Map<Long, TimerTask> timedMessages;
-    private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
+    private final Map<Long, TimerTask> timedMessages;
+    private final LinkedBlockingQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
 
@@ -54,12 +61,12 @@ public abstract class RaftServer extends Node<RaftMessage> {
         acceptingConnections = new AtomicBoolean();
         acceptingConnections.set(false);
 
-        clients = new LinkedList<>();
-        servers = new LinkedList<>();
+        clients = new HashSet<>();
+        servers = new HashSet<>();
 
         connections = new ConcurrentHashMap<>();
-        outgoingMessages = new ConcurrentHashMap<>();
-        incomingMessages = new ConcurrentLinkedQueue<>();
+        outgoingMessages = new LinkedBlockingQueue<>();
+        incomingMessages = new LinkedBlockingQueue<>();
         incomingMessageSelector = Selector.open();
 
         channelSelectionKeys = new ArrayList<>();
@@ -200,32 +207,19 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
     public void queueMessage (RaftMessage message, @NotNull Node<RaftMessage> node) {
         message.setReceiver(node);
-        synchronized (outgoingMessages) {
-            Queue<RaftMessage> messageQueue = outgoingMessages.getOrDefault(node, new ConcurrentLinkedQueue<>());
-            messageQueue.add(message);
-            outgoingMessages.put(node, messageQueue);
-            outgoingMessages.notifyAll();
-
-            if (message.getTimeout() != null) {
-                scheduleMessageTimeout(message);
-            }
-        }
-
-//        System.out.println(Thread.currentThread().getName() + "\tQueued message " + message + " for " + node.getInetSocketAddress());
+        outgoingMessages.add(message);
+        scheduleMessageTimeout(message);
     }
 
     public void queueMessage (RaftMessage message, List<Node<RaftMessage>> nodes) {
         for (Node<RaftMessage> node : nodes) {
-            message.setReceiver(node);
             queueMessage(new RaftMessage(message), node);
         }
     }
 
     public void queueServerBroadcast (RaftMessage message) {
-        queueMessage(message, servers);
-    }
-    public void queueClientBroadcast (RaftMessage message) {
-        queueMessage(message, clients);
+        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s.\n", id, message, servers.size(), servers);
+        queueMessage(message, servers.stream().toList());
     }
 
     private void acceptOneMessage(SocketConnection connection) {
@@ -235,11 +229,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
             return;
         }
         message.setSender(connection.endpoint);
-
-        synchronized (incomingMessages) {
-            incomingMessages.add(message);
-            incomingMessages.notifyAll();
-        }
+        incomingMessages.add(message);
 
         synchronized (timedMessages) {
             TimerTask scheduledResend = timedMessages.remove(message.ackNr);    // so that it stops re-sending
@@ -285,40 +275,25 @@ public abstract class RaftServer extends Node<RaftMessage> {
         return incomingMessages.remove();
     }
 
-    private boolean hasReadyMessages() {
-        return outgoingMessages.values().stream().anyMatch(raftMessages -> !raftMessages.isEmpty());
-    }
-
     private void startSendingMessages() {
         messageSendingThread = new Thread(() -> {
             while (true) {
-                // wait for messages to be ready in the outgoing message queue
-                while (!hasReadyMessages()) {
-                    try {
-                        synchronized (outgoingMessages) {
-                            outgoingMessages.wait();
-                        }
-                    } catch (InterruptedException e) {
+                try {
+                    RaftMessage msg = outgoingMessages.take();
+                    SocketConnection conn = connections.get(msg.getReceiver());
+                    if (conn == null) {
+                        System.out.printf("[!] %s could not send message %s: unknown connection.\n", this, msg);
                         continue;
                     }
-                }
-
-                // dequeue and send all available messages
-                outgoingMessages.forEach((Node<RaftMessage> node, Queue<RaftMessage> messages) -> {
-                        while (!messages.isEmpty()) {
-                            RaftMessage msg = messages.remove();
-                            SocketConnection receiver = connections.get(node);
-                            System.out.printf("[Sender] Server %d sent: %s to %s\n", id, msg, node.getInetSocketAddress());
-                            if (receiver == null) {
-                                return;
-                            }
-                            boolean success = receiver.send(msg);
-                            if (!success) {
-                                discardConnection(receiver);
-                            }
-                        }
+                    System.out.printf("[Sender] Server %d sending %s to %s.\n", id, msg, msg.getReceiver());
+                    boolean success = conn.send(msg);
+                    if (!success) {
+                        discardConnection(conn);
                     }
-                );
+                }
+                catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
             }
         });
 
@@ -328,15 +303,19 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     private TimerTask scheduleMessageTimeout(RaftMessage message) {
+        if (message.getTimeout() == null) return null;
+        long timeoutMilis = message.getTimeout().toMillis();
+        message.setTimeout(null);
 
         TimerTask timerTask = new TimerTask() {
             @Override
             public void run() {
+                System.out.printf("[Timeouts] %s Re-Queueing message %s.\n", this, message);
                 queueMessage(message, message.getReceiver());
             }
         };
 
-        timeoutTimer.scheduleAtFixedRate(timerTask, message.getTimeout().toMillis(), message.getTimeout().toMillis());
+        timeoutTimer.scheduleAtFixedRate(timerTask, timeoutMilis, timeoutMilis);
         timedMessages.put(message.sequenceNr, timerTask);
         message.setTimeout(null);
         return timerTask;

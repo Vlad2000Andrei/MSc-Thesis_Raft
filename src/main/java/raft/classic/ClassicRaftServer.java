@@ -19,15 +19,9 @@ import java.util.TimerTask;
 public class ClassicRaftServer extends RaftServer {
 
     // State for this implementation
-    private final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
 
-    private final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(1000);
-    private final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(2000);
-    private Duration electionTimeout;
-    private final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(200);
     private TimerTask heartbeatTimer;
     private int currentElectionVotes;
-    protected Instant electionTimeoutStartInstant;
 
     // State from Paper
     private int currentTerm;
@@ -157,7 +151,7 @@ public class ClassicRaftServer extends RaftServer {
         // Send a broadcast to all servers with RV-RPCs
         RequestVote rvRPC = new RequestVote(currentTerm, id, log.lastApplied, log.getLast().term());
         RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC);
-        rvRPCBroadcast.setTimeout(MSG_RETRY_INTERVAL);
+//        rvRPCBroadcast.setTimeout(MSG_RETRY_INTERVAL);
         queueServerBroadcast(rvRPCBroadcast);
     }
 
