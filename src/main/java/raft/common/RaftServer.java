@@ -45,7 +45,6 @@ public abstract class RaftServer extends Node<RaftMessage> {
     private final ConcurrentLinkedQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
-    protected Instant lastLeaderContact;
 
 
     public RaftServer(InetSocketAddress address) throws IOException {
@@ -70,14 +69,16 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
     public void start(Configuration config) {
         this.clusterConfig = config;
+        Thread.currentThread().setName("Server " + id);
 
         // Start the different worker threads
         acceptConnections();
         startAcceptingMessages();
         startSendingMessages();
         connectToServers();
+
         try {
-            Thread.sleep(100);
+            Thread.sleep(2000);
         }
         catch (InterruptedException e) {
             e.printStackTrace();
@@ -97,8 +98,6 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     SocketConnection connection = connectTo(peer);
                     connection.endpoint = peer;
                     System.out.printf("[i] Server %d connected to peer %s.\n", id, peer.getInetSocketAddress());
-
-                    connection.send(new RaftMessage(new ControlMessage(ControlMessageType.HELLO_SERVER, true, -1)));
                     servers.add(peer);
                     registerConnection(connection);
                     break;
@@ -182,7 +181,13 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     private void registerConnection(SocketConnection connection) throws IOException {
-        connections.put(connection.endpoint, connection);
+        boolean isServer = clusterConfig.servers().stream().anyMatch(node -> node.equals(connection.endpoint));
+
+        synchronized (connections) {
+            if (isServer) servers.add(connection.endpoint);
+            else clients.add(connection.endpoint);
+            connections.put(connection.endpoint, connection);
+        }
         SelectionKey selectionKey = connection.getNonBlockingChannel().register(incomingMessageSelector, SelectionKey.OP_READ);
         selectionKey.attach(connection);
         channelSelectionKeys.add(selectionKey);
@@ -271,10 +276,12 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     incomingMessages.wait();
                 }
                 catch (InterruptedException e) {
+                    System.out.printf("[!] Server %d getNextMessage() interrupted. Continuing...", id);
                     continue;
                 }
             }
         }
+//        System.out.printf("[Receiver] Server %d received message %s.\n", id, incomingMessages.peek());
         return incomingMessages.remove();
     }
 
@@ -321,8 +328,6 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     private TimerTask scheduleMessageTimeout(RaftMessage message) {
-        if (timedMessages.containsKey(message.sequenceNr))
-            return timedMessages.get(message.sequenceNr);
 
         TimerTask timerTask = new TimerTask() {
             @Override
@@ -333,8 +338,24 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
         timeoutTimer.scheduleAtFixedRate(timerTask, message.getTimeout().toMillis(), message.getTimeout().toMillis());
         timedMessages.put(message.sequenceNr, timerTask);
+        message.setTimeout(null);
         return timerTask;
     }
 
     public abstract void runRaft();
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Server %d at %s", id, getInetSocketAddress());
+    }
 }

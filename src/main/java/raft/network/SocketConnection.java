@@ -20,9 +20,14 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
 
     public Node<RaftMessage> endpoint;
 
+    private ObjectMapper mapper;
+
     public SocketConnection (String remoteAddress, Integer remotePort, SocketChannel socketChannel) throws IOException {
         this.endpoint = new Node<>(new InetSocketAddress(remoteAddress, remotePort));
         this.socketChannel = socketChannel;
+
+        mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
     }
 
     public SocketConnection (String remoteAddress, Integer remotePort) throws IOException {
@@ -34,9 +39,6 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
     @Override
     public boolean send(RaftMessage value) {
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            mapper.registerModule(new JavaTimeModule());
-
             byte[] data = mapper.writeValueAsBytes(value);
 
             ByteBuffer buf = ByteBuffer.allocate(Long.BYTES + data.length);
@@ -57,9 +59,6 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
     @Override
     public RaftMessage receive() {
         try {
-            ObjectMapper mapper = new ObjectMapper();
-            mapper.registerModule(new JavaTimeModule());
-
             // Read data size
             ByteBuffer sizeBuf = ByteBuffer.allocate(Long.BYTES);
             while (sizeBuf.position() < sizeBuf.capacity()) {

@@ -38,6 +38,11 @@ public class Node<T extends Serializable> {
 
     @Override
     public int hashCode() {
-        return Objects.hash(inetSocketAddress);
+        return inetSocketAddress.hashCode();
+    }
+
+    @Override
+    public String toString() {
+        return "Node at " + getInetSocketAddress().toString();
     }
 }

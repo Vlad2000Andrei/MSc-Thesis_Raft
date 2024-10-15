@@ -19,13 +19,15 @@ import java.util.TimerTask;
 public class ClassicRaftServer extends RaftServer {
 
     // State for this implementation
-    private final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(5000);
-    private final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(150);
-    private final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(500);
-    private Duration electionTimeout = Duration.ofMillis(new Random().nextInt((int)ELECTION_TIMEOUT_MIN.toMillis(), (int)ELECTION_TIMEOUT_MAX.toMillis())); // TODO make this not ugly:
-    private final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(50);
+    private final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
+
+    private final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(1000);
+    private final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(2000);
+    private Duration electionTimeout;
+    private final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(200);
     private TimerTask heartbeatTimer;
     private int currentElectionVotes;
+    protected Instant electionTimeoutStartInstant;
 
     // State from Paper
     private int currentTerm;
@@ -40,8 +42,9 @@ public class ClassicRaftServer extends RaftServer {
         currentTerm = 0;
 
         role = ServerRole.FOLLOWER;
-        lastLeaderContact = Instant.now();
+        electionTimeoutStartInstant = Instant.now();
         heartbeatTimer = null;
+        newRandomTimeout();
     }
 
     @Override
@@ -53,7 +56,9 @@ public class ClassicRaftServer extends RaftServer {
                     startElection();
                 }
 
+                System.out.printf("[Raft] %s waiting for messages.\n", this);
                 RaftMessage message = getNextMessage();
+                System.out.printf("[Raft] %s handling message.\n", this);
                 handleMessage(message);
             }
             catch (Exception e) {
@@ -80,7 +85,9 @@ public class ClassicRaftServer extends RaftServer {
     }
 
     private void handleAppendEntries (RaftMessage message){
-        System.out.printf("%s from %s\n", message.getAppendEntries(), getInetSocketAddress());
+        System.out.printf("[AppendEntries] %s from %s\n", message.getAppendEntries(), getInetSocketAddress());
+        ControlMessage accept = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, true, message.sequenceNr);
+        RaftMessage msg = new RaftMessage(accept).setAckNr(message.sequenceNr);
     }
 
     private void handleRequestVote (RaftMessage message){
@@ -91,6 +98,7 @@ public class ClassicRaftServer extends RaftServer {
         int candidateLogSize = message.requestVote.lastLogIndex();
         int candidateLogLastTerm = message.requestVote.lastLogTerm();
 
+        if (candidateTerm > currentTerm) setCurrentTerm(candidateTerm);
 
         if (candidateTerm >= currentTerm
                 && log.otherAsUpToDateAsThis(candidateLogLastTerm, candidateLogSize)
@@ -100,7 +108,7 @@ public class ClassicRaftServer extends RaftServer {
 
             votedFor = message.getSender();
             setRole(ServerRole.FOLLOWER);
-            lastLeaderContact = Instant.now();
+            electionTimeoutStartInstant = Instant.now();
             System.out.printf("[Vote] Server %d voted for %s in term %d.\n", id, message.getSender().getInetSocketAddress(), currentTerm);
         }
         else {
@@ -115,24 +123,18 @@ public class ClassicRaftServer extends RaftServer {
                     (votedFor == null || votedFor.equals(message.getSender())));
         }
 
-        if (candidateTerm > currentTerm) currentTerm = candidateTerm;
     }
 
     private void handleControlMessage (RaftMessage message) {
         System.out.printf("[Control] Server %d received control message from %s: %s.\n", id, message.getSender().getInetSocketAddress(), message.getControlMessage());
         switch (message.getControlMessage().type()) {
-            case HELLO_SERVER -> {
-                servers.add(message.getSender());
-                clients.remove(message.getSender());
-            }
-            case HELLO_CLIENT -> {
-                clients.add(message.getSender());
-                servers.remove(message.getSender());
-            }
             case REQUEST_VOTE_RESULT -> {
                 if (message.getControlMessage().result()) {
                     currentElectionVotes++;
                     System.out.printf("[Election] Server %d received vote from %s.\n", id, message.getSender().getInetSocketAddress());
+                }
+                else {
+                    System.out.printf("[Election] Server %d's RequestVote was REJECTED by %s.\n", id, message.getSender());
                 }
                 if (currentElectionVotes >= (clusterConfig.servers().size() + 1) / 2) {
                     System.out.printf("[Election] Server %d is now leader for term %d!\n", id, currentTerm);
@@ -146,11 +148,11 @@ public class ClassicRaftServer extends RaftServer {
     private void startElection() {
 
         setRole(ServerRole.CANDIDATE);
-        currentTerm++;
+        setCurrentTerm(currentTerm + 1);
         currentElectionVotes = 1; // Counts as voting for yourself
         votedFor = this;
 
-        System.out.printf("[Election] Server %d starting election in term %d.\n", id, currentTerm);
+        System.out.printf("[Election] Server %d starting election in term %d. Needed votes: %d\n", id, currentTerm, (clusterConfig.servers().size() + 1) / 2);
 
         // Send a broadcast to all servers with RV-RPCs
         RequestVote rvRPC = new RequestVote(currentTerm, id, log.lastApplied, log.getLast().term());
@@ -160,34 +162,37 @@ public class ClassicRaftServer extends RaftServer {
     }
 
     private void scheduleHeartbeatMessages() {
+        heartbeatTimer = new TimerTask() {
+            @Override
+            public void run() {
+                queueServerBroadcast(new RaftMessage(
+                        new AppendEntries(
+                                currentTerm,
+                                id,
+                                log.lastApplied,
+                                log.get(log.lastApplied).term(),
+                                new ArrayList<LogEntry>(0),
+                                log.committedIndex
+                        )));
+            }
+        };
+
         timeoutTimer.scheduleAtFixedRate(
-                new TimerTask() {
-                    @Override
-                    public void run() {
-                        queueServerBroadcast(new RaftMessage(
-                                new AppendEntries(
-                                        currentTerm,
-                                        id,
-                                        log.lastApplied,
-                                        log.get(log.lastApplied).term(),
-                                        new ArrayList<LogEntry>(0),
-                                        log.committedIndex
-                                )));
-                    }
-                },
+               heartbeatTimer,
                 0,
                 HEARTBEAT_INTERVAL.toMillis()
         );
     }
 
     private boolean checkElectionTimeout() {
-        System.out.printf("[Election] Server %d timed out (role: %s).\n", this.id, role.toString());
-        Duration timeSinceLeaderContact = Duration.between(lastLeaderContact, Instant.now());
+        Duration timeSinceLeaderContact = Duration.between(electionTimeoutStartInstant, Instant.now());
 
         if (timeSinceLeaderContact.minus(electionTimeout).toMillis() >= 0 && role != ServerRole.LEADER) {
-            lastLeaderContact = Instant.now();
+            System.out.printf("[Election] Server %d timed out (role: %s).\n", this.id, role.toString());
+            electionTimeoutStartInstant = Instant.now();
             votedFor = null;
             currentElectionVotes = 0;
+            newRandomTimeout();
             return true;
         }
         return false;
@@ -204,5 +209,18 @@ public class ClassicRaftServer extends RaftServer {
         }
         role = newRole;
         System.out.printf("[Role] Server %d switched to role %s.\n", id, role);
+    }
+
+    private void newRandomTimeout() {
+        electionTimeout = Duration.ofMillis(new Random().nextInt((int)ELECTION_TIMEOUT_MIN.toMillis(), (int)ELECTION_TIMEOUT_MAX.toMillis()));
+        System.out.printf("[Election] Server %d's new election timeout is %dms.\n", id, electionTimeout.toMillis());
+    }
+
+    private void setCurrentTerm (int newTerm) {
+        if (newTerm > currentTerm) {
+            votedFor = null;
+            currentTerm = newTerm;
+            System.out.printf("Server %d moved to term %d.\n", id, currentTerm);
+        }
     }
 }
