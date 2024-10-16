@@ -183,7 +183,7 @@ public class ClassicRaftServer extends RaftServer {
 
         // Send a broadcast to all servers with RV-RPCs
         RequestVote rvRPC = new RequestVote(currentTerm, id, log.lastApplied, log.getLast().term());
-        RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC); //.setTimeout(MSG_RETRY_INTERVAL);
+        RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC).setTimeout(MSG_RETRY_INTERVAL);
         queueServerBroadcast(rvRPCBroadcast);
     }
 

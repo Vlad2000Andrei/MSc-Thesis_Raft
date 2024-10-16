@@ -26,10 +26,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 public abstract class RaftServer extends Node<RaftMessage> {
-    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(200);
-    protected final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(3000);
-    protected final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(6000);
-    protected final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(200);
+    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
+    protected final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(200);
+    protected final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(350);
+    protected final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(50);
     protected Duration electionTimeout = Duration.ofSeconds(5);
     protected Instant electionTimeoutStartInstant;
 
@@ -116,8 +116,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     public int quorumSize() {
-        if (clusterConfig.servers().size() == 2) return 2;
-        else return (clusterConfig.servers().size() + 1) / 2;
+        return clusterConfig.servers().size() / 2 + 1;
     }
 
     private void discardConnection (SocketConnection connection) {
@@ -247,8 +246,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
                             .forEach(key -> {
                                 SocketConnection conn = (SocketConnection) key.attachment();
                                 acceptOneMessage(conn);
-                                incomingMessageSelector.selectedKeys().remove(key);
                             });
+                    incomingMessageSelector.selectedKeys().clear();
                 } catch (IOException e) {
                     System.out.println("[ERR Could not select incoming messages: " + e.getMessage());
                 }
