@@ -93,7 +93,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     private void connectToServers() {
-        final int ATTEMPTS = 30;
+        final int ATTEMPTS = 10;
         for (int i = 0; i < clusterConfig.servers().size(); i++) {
             if (clusterConfig.servers().get(i).id <= this.id) continue;
             for (int j = 0; j < ATTEMPTS; j++) {
