@@ -12,6 +12,7 @@ import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import raft.common.Colors;
 import raft.messaging.common.RaftMessage;
 
 
@@ -47,7 +48,9 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
 //            System.out.printf("%s sending: %s\n", Thread.currentThread().getName(), new String(data));
 
             buf.flip();
-            socketChannel.write(buf);
+            if (socketChannel.write(buf) < buf.limit()) {
+                System.out.printf(Colors.GREEN + "[!] %s: Write incomplete!\n" + Colors.RESET, Thread.currentThread().getName());
+            }
             return true;
         }
         catch (IOException e) {
@@ -62,7 +65,17 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             // Read data size
             ByteBuffer sizeBuf = ByteBuffer.allocate(Long.BYTES);
             while (sizeBuf.position() < sizeBuf.capacity()) {
-                if (socketChannel.read(sizeBuf) == -1) return null;
+                int result = socketChannel.read(sizeBuf);
+                if (result == -1) return null;
+                else if (result < sizeBuf.limit()) {
+                    System.out.printf(Colors.GREEN + "[!] %s: Header read incomplete (read: %d, needed: %d)!\n" + Colors.RESET, Thread.currentThread().getName(), result, sizeBuf.limit());
+                    try {
+                        Thread.sleep(20);
+                    }
+                    catch (InterruptedException e) {
+                        continue;
+                    }
+                }
             }
             sizeBuf.flip();
             int dataSize = (int)sizeBuf.asLongBuffer().get();
@@ -70,13 +83,21 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             // Read data
             ByteBuffer dataBuf = ByteBuffer.allocate(dataSize);
             while (dataBuf.position() < dataBuf.capacity()) {
-                if (socketChannel.read(dataBuf) == -1) return null;
+                int result = socketChannel.read(dataBuf);
+                if (result == -1) return null;
+                else if (result < dataBuf.limit()) {
+                    System.out.printf(Colors.GREEN + "[!] %s: Body read incomplete!\n" + Colors.RESET, Thread.currentThread().getName());
+                    try {
+                        Thread.sleep(5);
+                    }
+                    catch (InterruptedException e) {
+                        continue;
+                    }
+                }
             }
-//            System.out.printf("%s received: %s\n", Thread.currentThread().getName(), new String(dataBuf.array()));
             dataBuf.flip();
 
             // Map back to T
-//            System.out.println(Thread.currentThread().getName() + " RECV from " + endpoint);
             return mapper.readValue(dataBuf.array(), RaftMessage.class);
         }
         catch (IOException e) {

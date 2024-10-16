@@ -244,8 +244,11 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     incomingMessageSelector.select();
                     incomingMessageSelector.selectedKeys()
                             .stream()
-                            .map((SelectionKey k) -> (SocketConnection) k.attachment())
-                            .forEach(this::acceptOneMessage);
+                            .forEach(key -> {
+                                SocketConnection conn = (SocketConnection) key.attachment();
+                                acceptOneMessage(conn);
+                                incomingMessageSelector.selectedKeys().remove(key);
+                            });
                 } catch (IOException e) {
                     System.out.println("[ERR Could not select incoming messages: " + e.getMessage());
                 }
