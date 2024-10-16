@@ -242,8 +242,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
         messageReceivingThread = new Thread(() -> {
             while (true) {
                 try {
+                    incomingMessageSelector.select();
                     synchronized (incomingMessageSelector) {
-                        incomingMessageSelector.select();
                         incomingMessageSelector.selectedKeys()
                                 .stream()
                                 .forEach(key -> {
