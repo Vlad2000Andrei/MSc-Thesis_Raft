@@ -23,7 +23,7 @@ public class Benchmark {
 
             // Benchmark with local server
 //            stressTestEcho(4, 100_000, 55000);
-            spawnServers();
+            spawn3Servers();
         }
 
 
@@ -69,7 +69,18 @@ public class Benchmark {
         }
     }
 
-    public static void spawnServers() throws IOException {
+    public static void spawn2Servers() throws IOException {
+        RaftServer server1 = new ClassicRaftServer(new InetSocketAddress("localhost", 55000));
+        RaftServer server2 = new ClassicRaftServer(new InetSocketAddress("localhost", 55001));
+        server1.id = 0;
+        server2.id = 1;
+
+        Configuration config = new Configuration(List.of(server1, server2));
+        new Thread(() -> server1.start(config)).start();
+        new Thread(() -> server2.start(config)).start();
+    }
+
+    public static void spawn3Servers() throws IOException {
         RaftServer server1 = new ClassicRaftServer(new InetSocketAddress("localhost", 55000));
         RaftServer server2 = new ClassicRaftServer(new InetSocketAddress("localhost", 55001));
         RaftServer server3 = new ClassicRaftServer(new InetSocketAddress("localhost", 55002));
@@ -81,5 +92,25 @@ public class Benchmark {
         new Thread(() -> server1.start(config)).start();
         new Thread(() -> server2.start(config)).start();
         new Thread(() -> server3.start(config)).start();
+    }
+
+    public static void spawn5Servers() throws IOException {
+        RaftServer server1 = new ClassicRaftServer(new InetSocketAddress("localhost", 55000));
+        RaftServer server2 = new ClassicRaftServer(new InetSocketAddress("localhost", 55001));
+        RaftServer server3 = new ClassicRaftServer(new InetSocketAddress("localhost", 55002));
+        RaftServer server4 = new ClassicRaftServer(new InetSocketAddress("localhost", 55003));
+        RaftServer server5 = new ClassicRaftServer(new InetSocketAddress("localhost", 55004));
+        server1.id = 0;
+        server2.id = 1;
+        server3.id = 2;
+        server4.id = 3;
+        server5.id = 4;
+
+        Configuration config = new Configuration(List.of(server1, server2, server3, server4, server5));
+        new Thread(() -> server1.start(config)).start();
+        new Thread(() -> server2.start(config)).start();
+        new Thread(() -> server3.start(config)).start();
+        new Thread(() -> server4.start(config)).start();
+        new Thread(() -> server5.start(config)).start();
     }
 }

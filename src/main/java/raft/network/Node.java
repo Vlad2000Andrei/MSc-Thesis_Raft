@@ -22,6 +22,10 @@ public class Node<T extends Serializable> {
         InetSocketAddress nodeAddress = node.getInetSocketAddress();
         SocketConnection connection = new SocketConnection(nodeAddress.getAddress().getHostAddress(), nodeAddress.getPort());
 
+        connection.endpoint = new Node<RaftMessage>(new InetSocketAddress(
+                connection.socketChannel.socket().getInetAddress().getHostAddress(),
+                connection.socketChannel.socket().getPort()
+        ));
         return connection;
     }
 
@@ -44,5 +48,10 @@ public class Node<T extends Serializable> {
     @Override
     public String toString() {
         return "Node at " + getInetSocketAddress().toString();
+    }
+
+    public Node<T> setId (int id) {
+        this.id = id;
+        return this;
     }
 }

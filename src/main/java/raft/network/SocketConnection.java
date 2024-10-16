@@ -16,7 +16,7 @@ import raft.messaging.common.RaftMessage;
 
 
 public class SocketConnection implements Connection <RaftMessage>, AutoCloseable {
-    private SocketChannel socketChannel;
+    protected SocketChannel socketChannel;
 
     public Node<RaftMessage> endpoint;
 
@@ -76,6 +76,7 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             dataBuf.flip();
 
             // Map back to T
+//            System.out.println(Thread.currentThread().getName() + " RECV from " + endpoint);
             return mapper.readValue(dataBuf.array(), RaftMessage.class);
         }
         catch (IOException e) {
@@ -105,5 +106,10 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
     public SocketChannel getNonBlockingChannel() throws IOException {
         socketChannel.configureBlocking(false);
         return socketChannel;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("SocketConnection to %s", endpoint);
     }
 }
