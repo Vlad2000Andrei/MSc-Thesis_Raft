@@ -193,12 +193,10 @@ public abstract class RaftServer extends Node<RaftMessage> {
 
     private void registerConnection(SocketConnection connection) throws IOException {
         connections.put(connection.endpoint, connection);
-        synchronized (incomingMessageSelector) {
-            SelectionKey selectionKey = connection.getNonBlockingChannel().register(incomingMessageSelector, SelectionKey.OP_READ);
-            selectionKey.attach(connection);
-            channelSelectionKeys.add(selectionKey);
-            incomingMessageSelector.wakeup();
-        }
+        SelectionKey selectionKey = connection.getNonBlockingChannel().register(incomingMessageSelector, SelectionKey.OP_READ);
+        selectionKey.attach(connection);
+        channelSelectionKeys.add(selectionKey);
+        incomingMessageSelector.wakeup();
     }
 
     public Collection<SocketConnection> getConnections() {
@@ -243,15 +241,13 @@ public abstract class RaftServer extends Node<RaftMessage> {
             while (true) {
                 try {
                     incomingMessageSelector.select();
-                    synchronized (incomingMessageSelector) {
-                        incomingMessageSelector.selectedKeys()
-                                .stream()
-                                .forEach(key -> {
-                                    SocketConnection conn = (SocketConnection) key.attachment();
-                                    acceptOneMessage(conn);
-                                });
-                        incomingMessageSelector.selectedKeys().clear();
-                    }
+                    incomingMessageSelector.selectedKeys()
+                            .stream()
+                            .forEach(key -> {
+                                SocketConnection conn = (SocketConnection) key.attachment();
+                                acceptOneMessage(conn);
+                            });
+                    incomingMessageSelector.selectedKeys().clear();
                 } catch (IOException e) {
                     System.out.println("[ERR Could not select incoming messages: " + e.getMessage());
                 }
