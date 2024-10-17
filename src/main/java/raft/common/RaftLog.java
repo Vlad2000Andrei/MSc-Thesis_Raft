@@ -29,7 +29,6 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
         return entries.add(entry);
     }
 
-
     public List<LogEntry> getEntries() {
         return new ArrayList<>(entries);
     }
@@ -81,9 +80,17 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
         return entries.size() - 1;
     }
 
-    public boolean hasMatchingEntry (int idx, LogEntry entry) {
+    public boolean hasMatchingEntry (int idx, int term) {
         if (idx >= entries.size()) return false;
-        if (entries.get(idx).term() != entry.term()) return false;
+        if (entries.get(idx).term() != term) return false;
         else return true;
+    }
+
+    public void insertEntry (int idx, LogEntry entry) {
+        // Remove any entries after this
+        if (getLastIndex() >= idx) {
+            entries = entries.subList(0, idx);
+        }
+        if (entry != null) add(entry);
     }
 }

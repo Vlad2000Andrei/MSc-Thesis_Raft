@@ -84,18 +84,21 @@ public class ClassicRaftServer extends RaftServer {
     private void handleAppendEntries (RaftMessage message){
 //        System.out.printf("[AppendEntries] Server %d received %s from %s.\n", id, message.getAppendEntries(), getInetSocketAddress());
         ControlMessage outcome;
+        LogEntry entry = message.appendEntries.entries().getFirst();
 
-
-        if (message.appendEntries.term() >= currentTerm) {
+        // Reply false if they are from a past term
+        if (message.appendEntries.term() < currentTerm) {
+            outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, false, message.sequenceNr);
+        }
+        else {
             // Update own term if sender has greater term
             if (message.appendEntries.term() > currentTerm) setCurrentTerm(message.appendEntries.term());
 
-            // Accept entries if the
-            outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, true, message.sequenceNr);
+            // Try to insert the entries
+            boolean inserted = tryStoreEntry(message.appendEntries);
+
+            outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, inserted, message.sequenceNr);
             clearElectionTimeout();
-        }
-        else {
-            outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, false, message.sequenceNr);
         }
 
         RaftMessage msg = new RaftMessage(outcome).setAckNr(message.sequenceNr);
@@ -307,13 +310,26 @@ public class ClassicRaftServer extends RaftServer {
         }
     }
 
-    private boolean countAcceptedEntry(int index, int serverId) {
+    private boolean handleAcceptedEntry(int index, int serverId) {
         matchIndex.put(serverId, index);
         nextIndex.put(serverId, index + 1);
 
         return matchIndex.values()
                 .stream()
                 .allMatch(idx -> idx >= index);
+    }
+
+    private void handleRejectedEntry(int index, int serverId) {
+        nextIndex.compute(serverId, (id,idx) -> idx - 1);
+        RaftMessage updatedAERPC = createAppendEntryMessage(nextIndex.get(serverId));
+
+        Node<RaftMessage> server = clusterConfig.servers()
+                .stream()
+                .filter(node -> node.id == serverId)
+                .toList()
+                .getFirst();
+
+        queueMessage(updatedAERPC, server);
     }
 
     private void createEntry() {
@@ -326,12 +342,28 @@ public class ClassicRaftServer extends RaftServer {
         log.add(entry);
 
         // Announce to all servers
+        RaftMessage aeRPC = createAppendEntryMessage(log.getLastIndex());
+        queueServerBroadcast(aeRPC);
+    }
+
+    private boolean tryStoreEntry (AppendEntries msg) {
+        if (log.hasMatchingEntry(msg.prevLogIdx(), msg.prevLogTerm())) {
+            log.insertEntry(msg.prevLogIdx() + 1, msg.entries().getFirst());
+            return true;
+        }
+        return false;
+    }
+
+    private RaftMessage createAppendEntryMessage(int idx) {
+        int previousEntryIdx = idx -1;
+        LogEntry previousEntry = log.get(previousEntryIdx);
+
         AppendEntries appendEntries = new AppendEntries(currentTerm,
                 id,
                 previousEntryIdx,
                 previousEntry.term(),
-                List.of(entry),
+                List.of(log.get(idx)),
                 log.committedIndex);
-        queueServerBroadcast(new RaftMessage(appendEntries).setTimeout(MSG_RETRY_INTERVAL));
+        return new RaftMessage(appendEntries).setTimeout(HEARTBEAT_INTERVAL);
     }
 }
