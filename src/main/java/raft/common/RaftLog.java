@@ -25,7 +25,6 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     }
 
     public boolean add(LogEntry entry) {
-        lastApplied++;
         return entries.add(entry);
     }
 

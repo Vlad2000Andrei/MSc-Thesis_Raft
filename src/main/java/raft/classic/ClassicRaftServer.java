@@ -84,7 +84,6 @@ public class ClassicRaftServer extends RaftServer {
     private void handleAppendEntries (RaftMessage message){
 //        System.out.printf("[AppendEntries] Server %d received %s from %s.\n", id, message.getAppendEntries(), getInetSocketAddress());
         ControlMessage outcome;
-        LogEntry entry = message.appendEntries.entries().getFirst();
 
         // Reply false if they are from a past term
         if (message.appendEntries.term() < currentTerm) {
@@ -101,6 +100,13 @@ public class ClassicRaftServer extends RaftServer {
             clearElectionTimeout();
         }
 
+        if (outcome.result()) {
+            System.out.printf(Colors.GREEN + "[AppendEntries] Server %d accepted %d new entries from %s.\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.getSender());
+        }
+        else {
+            System.out.printf(Colors.YELLOW + "[AppendEntries] Server %d rejected %d new entries from %s.\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.getSender());
+
+        }
         RaftMessage msg = new RaftMessage(outcome).setAckNr(message.sequenceNr);
         queueMessage(msg, message.getSender());
     }
@@ -245,6 +251,8 @@ public class ClassicRaftServer extends RaftServer {
                 matchIndex.put(server.id, 0);
                 nextIndex.put(server.id, log.getLastIndex() + 1);
             });
+
+            createEntry();
         }
         role = newRole;
         System.out.printf(Colors.RED + "[Role] Server %d switched to role %s.\n" + Colors.RESET, id, role);
@@ -348,7 +356,10 @@ public class ClassicRaftServer extends RaftServer {
 
     private boolean tryStoreEntry (AppendEntries msg) {
         if (log.hasMatchingEntry(msg.prevLogIdx(), msg.prevLogTerm())) {
-            log.insertEntry(msg.prevLogIdx() + 1, msg.entries().getFirst());
+            LogEntry entryToInsert = null;
+            if (!msg.entries().isEmpty()) entryToInsert = msg.entries().getFirst();
+
+            log.insertEntry(msg.prevLogIdx() + 1, entryToInsert);
             return true;
         }
         return false;
