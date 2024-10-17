@@ -80,4 +80,10 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     public int getLastIndex() {
         return entries.size() - 1;
     }
+
+    public boolean hasMatchingEntry (int idx, LogEntry entry) {
+        if (idx >= entries.size()) return false;
+        if (entries.get(idx).term() != entry.term()) return false;
+        else return true;
+    }
 }

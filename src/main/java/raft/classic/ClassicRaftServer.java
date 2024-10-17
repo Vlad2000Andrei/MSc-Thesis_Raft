@@ -30,6 +30,9 @@ public class ClassicRaftServer extends RaftServer {
     private RaftLog log;
     protected ServerRole role;
 
+    private HashMap<Integer, Integer> nextIndex;
+    private HashMap<Integer, Integer> matchIndex;
+
 
     public ClassicRaftServer(InetSocketAddress address) throws IOException {
         super(address);
@@ -82,11 +85,12 @@ public class ClassicRaftServer extends RaftServer {
 //        System.out.printf("[AppendEntries] Server %d received %s from %s.\n", id, message.getAppendEntries(), getInetSocketAddress());
         ControlMessage outcome;
 
-        if (message.appendEntries.term() > currentTerm) {
-            setCurrentTerm(message.appendEntries.term());
-        }
 
         if (message.appendEntries.term() >= currentTerm) {
+            // Update own term if sender has greater term
+            if (message.appendEntries.term() > currentTerm) setCurrentTerm(message.appendEntries.term());
+
+            // Accept entries if the
             outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, true, message.sequenceNr);
             clearElectionTimeout();
         }
@@ -231,6 +235,13 @@ public class ClassicRaftServer extends RaftServer {
         }
         if (newRole == ServerRole.LEADER) {
             scheduleHeartbeatMessages();
+            matchIndex = new HashMap<>();
+            nextIndex = new HashMap<>();
+
+            clusterConfig.servers().forEach(server -> {
+                matchIndex.put(server.id, 0);
+                nextIndex.put(server.id, log.getLastIndex() + 1);
+            });
         }
         role = newRole;
         System.out.printf(Colors.RED + "[Role] Server %d switched to role %s.\n" + Colors.RESET, id, role);
@@ -261,9 +272,6 @@ public class ClassicRaftServer extends RaftServer {
         try {
             int ownId = Integer.parseInt(args[0]);
             String configFilePath = args[1];
-
-//            String configFilePath = "C:\\Users\\cursa\\OneDrive\\Desktop\\raftConfig.txt";
-//            int ownId = 0;
 
             File configFile = new File(configFilePath);
             FileInputStream fis = new FileInputStream(configFile);
@@ -297,5 +305,33 @@ public class ClassicRaftServer extends RaftServer {
         catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private boolean countAcceptedEntry(int index, int serverId) {
+        matchIndex.put(serverId, index);
+        nextIndex.put(serverId, index + 1);
+
+        return matchIndex.values()
+                .stream()
+                .allMatch(idx -> idx >= index);
+    }
+
+    private void createEntry() {
+        // Find previous entry details
+        int previousEntryIdx = log.getLastIndex();
+        LogEntry previousEntry = log.getLast();
+
+        // Create new entry
+        LogEntry entry = new LogEntry(currentTerm);
+        log.add(entry);
+
+        // Announce to all servers
+        AppendEntries appendEntries = new AppendEntries(currentTerm,
+                id,
+                previousEntryIdx,
+                previousEntry.term(),
+                List.of(entry),
+                log.committedIndex);
+        queueServerBroadcast(new RaftMessage(appendEntries).setTimeout(MSG_RETRY_INTERVAL));
     }
 }
