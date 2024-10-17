@@ -1,5 +1,6 @@
 package raft.classic;
 
+import raft.benchmark.Crasher;
 import raft.common.*;
 import raft.messaging.common.ControlMessage;
 import raft.messaging.common.ControlMessageType;
@@ -21,7 +22,7 @@ public class ClassicRaftServer extends RaftServer {
 
     // State for this implementation
 
-    private TimerTask heartbeatTimer;
+    public TimerTask heartbeatTimer;
     private int currentElectionVotes;
 
     // State from Paper
@@ -46,6 +47,8 @@ public class ClassicRaftServer extends RaftServer {
 
     @Override
     public void runRaft() {
+        Crasher crasher = new Crasher(0.000_000_001, Duration.ofSeconds(3), Duration.ofSeconds(7));
+
         while(true) {
             try {
                 // Check for election timeouts
@@ -57,6 +60,8 @@ public class ClassicRaftServer extends RaftServer {
                 if (message != null) {
                     handleMessage(message);
                 }
+
+                crasher.tryCrash(this);
             }
             catch (Exception e) {
                 System.out.printf("[ERR] (%s)\t Error while running raft:\n", Thread.currentThread().getName());
@@ -196,11 +201,11 @@ public class ClassicRaftServer extends RaftServer {
 
         // Send a broadcast to all servers with RV-RPCs
         RequestVote rvRPC = new RequestVote(currentTerm, id, log.lastApplied, log.getLast().term());
-        RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC).setTimeout(MSG_RETRY_INTERVAL);
+        RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC);//.setTimeout(MSG_RETRY_INTERVAL);
         queueServerBroadcast(rvRPCBroadcast);
     }
 
-    private void scheduleHeartbeatMessages() {
+    public void scheduleHeartbeatMessages() {
         heartbeatTimer = new TimerTask() {
             @Override
             public void run() {
@@ -241,6 +246,7 @@ public class ClassicRaftServer extends RaftServer {
 
         if (role == ServerRole.LEADER) {
             heartbeatTimer.cancel();
+            heartbeatTimer = null;
         }
         if (newRole == ServerRole.LEADER) {
             scheduleHeartbeatMessages();
