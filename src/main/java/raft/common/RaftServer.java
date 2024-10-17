@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 public abstract class RaftServer extends Node<RaftMessage> {
-    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
+    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(125);
     protected final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(200);
     protected final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(350);
     protected final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(50);

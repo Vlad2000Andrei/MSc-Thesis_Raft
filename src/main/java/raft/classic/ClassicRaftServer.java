@@ -341,10 +341,6 @@ public class ClassicRaftServer extends RaftServer {
     }
 
     private void createEntry() {
-        // Find previous entry details
-        int previousEntryIdx = log.getLastIndex();
-        LogEntry previousEntry = log.getLast();
-
         // Create new entry
         LogEntry entry = new LogEntry(currentTerm);
         log.add(entry);

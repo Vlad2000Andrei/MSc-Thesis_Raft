@@ -2,6 +2,7 @@ package raft.common;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -15,7 +16,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     public int lastApplied;
 
     public RaftLog() {
-        entries = List.of(new LogEntry(0));
+        entries = new ArrayList<>(List.of(new LogEntry(0)));
         committedIndex = 0;
         lastApplied = 0;
     }
