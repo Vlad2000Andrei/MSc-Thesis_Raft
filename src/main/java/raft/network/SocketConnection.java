@@ -49,7 +49,7 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
 
             buf.flip();
             if (socketChannel.write(buf) < buf.limit()) {
-                System.out.printf(Colors.GREEN + "[!] %s: Write incomplete!\n" + Colors.RESET, Thread.currentThread().getName());
+                System.out.printf(Colors.GREEN + "[!] %s: Write incomplete to %s (Sending: %s)!\n" + Colors.RESET, Thread.currentThread().getName(), this.toString(), value);
             }
             return true;
         }

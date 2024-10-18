@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
 public abstract class RaftServer extends Node<RaftMessage> {
-    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(125);
+    protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(50);
     protected final Duration ELECTION_TIMEOUT_MIN = Duration.ofMillis(200);
     protected final Duration ELECTION_TIMEOUT_MAX = Duration.ofMillis(350);
     protected final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(50);
@@ -95,7 +95,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
     private void connectToServers() {
         final int ATTEMPTS = 10;
         for (int i = 0; i < clusterConfig.servers().size(); i++) {
-            if (clusterConfig.servers().get(i).id <= this.id) continue;
+            int peerId = clusterConfig.servers().get(i).id;
+            if (peerId <= this.id) continue;
             for (int j = 0; j < ATTEMPTS; j++) {
                 try {
                     Thread.sleep(500);
@@ -103,10 +104,10 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     Node<RaftMessage> peer = clusterConfig.servers().get(i);
                     SocketConnection connection = connectTo(peer);
                     registerConnection(connection);
-                    servers.add(connection.endpoint);
+                    servers.add(connection.endpoint.setId(peerId));
                     System.out.printf("[Infra] Server %d connected to %s. It now knows: \n\t- Servers: %s \n\t- Connections: %s\n", id, connection.endpoint, servers, connections.values());
 
-                    queueMessage(new RaftMessage(new ControlMessage(ControlMessageType.HELLO_SERVER, 0, true, -1)), connection.endpoint);
+                    queueMessage(new RaftMessage(new ControlMessage(ControlMessageType.HELLO_SERVER, 0, true, id)), connection.endpoint);
                     break;
                 } catch (Exception e) {
                     System.out.printf("[i] Server %d failed to connect to peer %s. Retrying...\n", id, clusterConfig.servers().get(i).getInetSocketAddress());
@@ -216,7 +217,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     public void queueServerBroadcast (RaftMessage message) {
-        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s. Queue size: %d\n", id, message, servers.size(), servers.stream().toList(), outgoingMessages.size());
+        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s\n", id, message, servers.size(), servers.stream().toList());
         queueMessage(message, servers.stream().toList());
     }
 
@@ -263,7 +264,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
         Instant nextElectionTimeout = electionTimeoutStartInstant.plus(electionTimeout);
         Duration timeUntilElectionTimeout = Duration.between(Instant.now(), nextElectionTimeout);
         try {
-            return incomingMessages.poll(timeUntilElectionTimeout.toMillis() / 10, TimeUnit.MILLISECONDS);
+            return incomingMessages.poll(timeUntilElectionTimeout.toMillis(), TimeUnit.MILLISECONDS);
         }
         catch (InterruptedException e) {
             return null;
@@ -277,7 +278,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
                     RaftMessage msg = outgoingMessages.take();
                     SocketConnection conn = connections.get(msg.getReceiver());
                     if (conn == null) {
-                        System.out.printf("[!] %s could not send message %s: unknown connection.\n", this, msg);
+                        System.out.printf("[!] %s could not send message %s to %s: unknown connection.\n", this, msg, msg.getReceiver());
                         continue;
                     }
 //                    System.out.printf("[Sender] Server %d sending %s to %s.\n", id, msg, msg.getReceiver());

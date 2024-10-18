@@ -2,7 +2,7 @@ package raft.benchmark;
 
 import raft.classic.ClassicRaftServer;
 import raft.common.Colors;
-import raft.common.RaftServer;
+import raft.common.ServerRole;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -37,16 +37,14 @@ public class Crasher {
 
     public void tryCrash(ClassicRaftServer server) {
         int chance = rand.nextInt(1_000_000_000);
+//        System.out.printf("[Crasher] chance: %d \tthresh: %d\n", chance, threshold);
         if (chance > threshold) return;
 
 
         long millis = rand.nextLong(minTime.toMillis(), maxTime.toMillis());
         Instant endPoint = Instant.now().plus(Duration.ofMillis(millis));
 
-        if (server.heartbeatTimer != null) {
-            server.heartbeatTimer.cancel();
-            server.heartbeatTimer = null;
-        }
+        server.descheduleHeartbeatMessage();
 
         System.out.printf(Colors.RED + "-------=========[CRASH]=========-------\n Crashing for %ds %dms\n-------=========#######=========-------\n" + Colors.RESET,
                 Duration.ofMillis(millis).toSecondsPart(),
@@ -64,6 +62,7 @@ public class Crasher {
 
         System.out.println(Colors.RED + "[RECOVERY] Recovered from crash!" + Colors.RESET);
 
-        server.scheduleHeartbeatMessages();
+        if (server.getRole() == ServerRole.LEADER) server.scheduleHeartbeatMessages();
+        server.clearElectionTimeout();
     }
 }

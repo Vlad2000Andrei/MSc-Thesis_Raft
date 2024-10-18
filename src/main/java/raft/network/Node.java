@@ -47,7 +47,7 @@ public class Node<T extends Serializable> {
 
     @Override
     public String toString() {
-        return "Node at " + getInetSocketAddress().toString();
+        return "Node " + id + " at " + getInetSocketAddress().toString();
     }
 
     public Node<T> setId (int id) {
