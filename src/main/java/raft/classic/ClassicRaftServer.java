@@ -45,8 +45,9 @@ public class ClassicRaftServer extends RaftServer {
 
     @Override
     public void runRaft() {
-        Crasher crasher = new Crasher(0.0003, Duration.ofSeconds(3), Duration.ofSeconds(7));
+        Crasher crasher = new Crasher(0.0001, Duration.ofSeconds(5), Duration.ofSeconds(7));
 
+        Instant lastSimulatedEntryAt = Instant.now();
         while(true) {
             try {
                 // Check for election timeouts
@@ -62,7 +63,15 @@ public class ClassicRaftServer extends RaftServer {
                     System.out.println(".");
                 }
 
-                crasher.tryCrash(this);
+                // Pretent to get a client request
+                if (role == ServerRole.LEADER) {
+                    if (Duration.between(lastSimulatedEntryAt, Instant.now()).toMillis() > 100) {
+                        createEntry();
+                        lastSimulatedEntryAt = Instant.now();
+                    }
+                }
+
+                crasher.tryCrash(this, true);
             }
             catch (Exception e) {
                 System.out.printf("[ERR] (%s)\t Error while running raft:\n", Thread.currentThread().getName());
@@ -90,7 +99,7 @@ public class ClassicRaftServer extends RaftServer {
     private void handleAppendEntries (RaftMessage message){
         ControlMessage outcome;
         String reason = "";
-        System.out.printf("[AppendEntries] Received: %s from %s.\n", message, message.getSender());
+//        System.out.printf("[AppendEntries] Received: %s from %s.\n", message.appendEntries, message.getSender());
 
         // Reply false if they are from a past term
         if (message.appendEntries.term() < currentTerm) {
@@ -108,7 +117,7 @@ public class ClassicRaftServer extends RaftServer {
             boolean inserted = tryStoreEntry(message.appendEntries);
 
             if (message.appendEntries.leaderCommit() > log.getCommittedIndex()) {
-                int newCommittedIndex = Math.min(message.appendEntries.leaderCommit(), log.getSize());
+                int newCommittedIndex = Math.min(message.appendEntries.leaderCommit(), log.getLastIndex());
                 log.setCommittedIndex(newCommittedIndex);
             }
 
@@ -117,10 +126,10 @@ public class ClassicRaftServer extends RaftServer {
         }
 
         if (outcome.result()) {
-            System.out.printf(Colors.GREEN + "[AppendEntries] Server %d accepted %d new term %d entries from %s. Log size: %d (cIdx: %d).\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.appendEntries.term(), message.getSender(), log.getSize(), log.getCommittedIndex());
+            System.out.printf(Colors.GREEN + "[AppendEntries] Server %d accepted %d new term %d entries from %s. Last idx: %d (cIdx: %d, qSize: %d).\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.appendEntries.term(), message.getSender(), log.getLastIndex(), log.getCommittedIndex(), incomingMessages.size());
         }
         else {
-            System.out.printf(Colors.YELLOW + "[AppendEntries] Server %d rejected %d new entries from %s: %s\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.getSender(), reason);
+            System.out.printf(Colors.YELLOW + "[AppendEntries] Server %d rejected %d new entries from %s: %s. (cIdx: %d, qSize: %d)\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.getSender(), reason, log.getCommittedIndex(), incomingMessages.size());
         }
         RaftMessage msg = new RaftMessage(outcome).setAckNr(message.sequenceNr);
         queueMessage(msg, message.getSender());
@@ -170,7 +179,6 @@ public class ClassicRaftServer extends RaftServer {
 //        System.out.printf("[Control] Server %d received control message from %s: %s.\n", id, message.getSender().getInetSocketAddress(), message.getControlMessage());
         switch (message.getControlMessage().type()) {
             case REQUEST_VOTE_RESULT -> {
-
                 if (message.getControlMessage().result() && message.controlMessage.term() == currentTerm) {
                     currentElectionVotes++;
 //                    System.out.printf("[Election] Server %d received vote from %s in term %d.\n", id, message.getSender().getInetSocketAddress(), currentTerm);
@@ -188,6 +196,7 @@ public class ClassicRaftServer extends RaftServer {
                 }
             }
             case APPEND_ENTRIES_RESULT -> {
+                if (role != ServerRole.LEADER) break;
                 if (message.controlMessage.term() > currentTerm) {
                     setCurrentTerm(message.controlMessage.term());
                     setRole(ServerRole.FOLLOWER);
@@ -196,7 +205,7 @@ public class ClassicRaftServer extends RaftServer {
                 if (message.controlMessage.result()) {
                     long replicatedCount = handleAcceptedEntry((int)message.controlMessage.resultOf(), message.getSender().id);
                     if (replicatedCount >= quorumSize()) {
-                        log.committedIndex.set((int)message.controlMessage.resultOf());
+                        log.setCommittedIndex(Math.max((int)message.controlMessage.resultOf(), log.getCommittedIndex()));
                     }
                 }
                 else {
@@ -214,7 +223,6 @@ public class ClassicRaftServer extends RaftServer {
     }
 
     private void startElection() {
-
         setRole(ServerRole.CANDIDATE);
         setCurrentTerm(currentTerm + 1);
         currentElectionVotes = 1; // Counts as voting for yourself
@@ -223,7 +231,7 @@ public class ClassicRaftServer extends RaftServer {
         System.out.printf("[Election] Server %d starting election in term %d. Needed votes: %d\n", id, currentTerm, quorumSize());
 
         // Send a broadcast to all servers with RV-RPCs
-        RequestVote rvRPC = new RequestVote(currentTerm, id, log.committedIndex.get(), log.getLast().term());
+        RequestVote rvRPC = new RequestVote(currentTerm, id, log.getLastIndex(), log.getLast().term());
         RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC);//.setTimeout(MSG_RETRY_INTERVAL);
         queueServerBroadcast(rvRPCBroadcast);
     }
@@ -338,8 +346,17 @@ public class ClassicRaftServer extends RaftServer {
     }
 
     private void handleRejectedEntry(int index, int serverId) {
-        nextIndex.compute(serverId, (id,idx) -> Math.min(0, index - 1));
+        nextIndex.compute(serverId, (id,idx) -> Math.max(0, index - 1));
+
+        // if this is an old request, the server might have accepted this in the meantime.
+        // this is a non-official optimization
+        if (matchIndex.get(serverId) >= nextIndex.get(serverId)) {
+            nextIndex.put(serverId, nextIndex.get(serverId));
+            return;
+        }
+
         RaftMessage updatedAERPC = createAppendEntryMessage(nextIndex.get(serverId));
+//        System.out.printf(Colors.YELLOW + "[Raft] Server %d rejected entry %s at idx %d. Sending entry %s at index %d.\n" + Colors.RESET, serverId, log.get(index), index, log.get(nextIndex.get(serverId)), nextIndex.get(serverId));
 
         Node<RaftMessage> server = getFirstServerById(serverId);
         queueMessage(updatedAERPC, server);
@@ -358,7 +375,7 @@ public class ClassicRaftServer extends RaftServer {
         // Create new entry
         LogEntry entry = new LogEntry(currentTerm);
         log.add(entry);
-
+        matchIndex.put(id, log.getLastIndex()); // Count self for committing purposes
 
         // Announce to all servers
         RaftMessage aeRPC = createAppendEntryMessage(log.getLastIndex());
@@ -403,7 +420,7 @@ public class ClassicRaftServer extends RaftServer {
                         queueMessage(msg, server);
                     }
                     catch (NoSuchElementException e) {
-                        System.out.printf(Colors.YELLOW + "[Timing] Skipping updates for Server %d because it cannot be found.\n" + Colors.RESET, entry.getKey());
+                        //System.out.printf(Colors.YELLOW + "[Timing] Skipping updates for Server %d because it cannot be found.\n" + Colors.RESET, entry.getKey());
                     }
                 });
     }

@@ -14,12 +14,14 @@ public class Crasher {
     private Duration minTime;
     private Duration maxTime;
     private Random rand;
+    private Instant lastCheck;
 
-    public Crasher (double probability, Duration minTime, Duration maxTime) {
-        threshold = (int) (1_000_000_000 * probability);
+    public Crasher (double probabilityPerMilli, Duration minTime, Duration maxTime) {
+        threshold = (int) (1_000_000_000 * probabilityPerMilli);
         this.minTime = minTime;
         this.maxTime = maxTime;
         rand = new Random();
+        lastCheck = Instant.now();
     }
 
     public Crasher (double probability) {
@@ -36,8 +38,14 @@ public class Crasher {
     }
 
     public void tryCrash(ClassicRaftServer server) {
+        tryCrash(server, false);
+    }
+
+    public void tryCrash(ClassicRaftServer server, boolean preferLeader) {
+        if (Duration.between(lastCheck, Instant.now()).toMillis() < 1) return;
+
         int chance = rand.nextInt(1_000_000_000);
-//        System.out.printf("[Crasher] chance: %d \tthresh: %d\n", chance, threshold);
+        if (preferLeader && server.getRole() == ServerRole.LEADER) chance = chance / 2;
         if (chance > threshold) return;
 
         crash(server);
@@ -64,6 +72,10 @@ public class Crasher {
         }
 
         System.out.println(Colors.RED + "[RECOVERY] Recovered from crash!" + Colors.RESET);
+
+        // Pretend that we crashed and our volatile in-RAM data is gone :((
+        server.incomingMessages.clear();
+        server.outgoingMessages.clear();
 
         if (server.getRole() == ServerRole.LEADER) server.scheduleHeartbeatMessages();
         server.clearElectionTimeout();

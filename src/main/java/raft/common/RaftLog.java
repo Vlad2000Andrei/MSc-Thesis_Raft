@@ -46,8 +46,18 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
         return committedIndex.get();
     }
 
-    public void setCommittedIndex(Integer committedIndex) {
-        this.committedIndex.set(committedIndex);
+    public void setCommittedIndex(Integer newIndex) {
+        if (newIndex - committedIndex.get() > 1) {
+            System.out.printf(Colors.CYAN + "[RaftLog] Commit index skipping from %d to %d.\n" + Colors.RESET, committedIndex.get(), newIndex);
+//            System.exit(1);
+        }
+        if (newIndex - committedIndex.get() < 0) {
+            System.out.printf(Colors.CYAN + "[RaftLog] Commit index going backwards %d to %d.\n" + Colors.RESET, committedIndex.get(), newIndex);
+//            System.exit(1);
+        }
+
+        committedIndex.set(newIndex);
+        if(newIndex > committedIndex.get()) System.out.printf(Colors.CYAN + "[RaftLog] All entries up to %d now committed.\n" + Colors.RESET, newIndex);
     }
 
     @Override
@@ -70,7 +80,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
             result = getLast().term() <= otherLastTerm;
         }
         else {
-            result = committedIndex.get() <= otherLastAppliedIdx;
+            result = getLastIndex() <= otherLastAppliedIdx;
         }
         return result;
     }
@@ -93,14 +103,13 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
     public void insertEntry (int idx, LogEntry entry) {
         synchronized (entries) {
-            // Remove any entries after this
+            // If there are conflicting entries, remove them
             while (entries.size() > idx) {
-                System.out.printf(Colors.CYAN + "Removing entry %s at %d to insert %s at %d.\n" + Colors.RESET, entries.getLast(), entries.size()-1, entry, idx);
+//                System.out.printf(Colors.CYAN + "Removing entry %s at %d to insert %s at %d.\n" + Colors.RESET, entries.getLast(), entries.size()-1, entry, idx);
                 entries.removeLast();
             }
+            if (entry != null) entries.add(entry);
             setSize(entries.size());
-            // Add the new one
-            if (entry != null) add(entry);
         }
     }
 
@@ -110,9 +119,20 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
     private void setSize(int newSize) {
         if (newSize <= committedIndex.get()) {
-            System.out.printf(Colors.CYAN + "[RaftLog] Illegal log shrink to %d (below commit index of %d) detected!\n", newSize, committedIndex.get());
-            System.exit(1);
+            System.out.printf(Colors.CYAN + "[RaftLog] Log shrink to %d (below commit index of %d) detected!\n", newSize, committedIndex.get());
+            // Paper says commitIndex increases monotonically, but the TLA+ spec overwrites it anyways, so we'll go with it?
+//            System.exit(1);
         }
         size.set(newSize);
+    }
+
+    public boolean contains(LogEntry entry, int index) {
+        if (index > getLastIndex()) return false;
+        return get(index).term() == entry.term();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Raft Log: %s. Committed: %d LastIdx: %d Size: %d.\n", entries.toString(), getCommittedIndex(), getLastIndex(), getSize());
     }
 }

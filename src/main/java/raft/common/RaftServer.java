@@ -45,8 +45,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
     protected final Timer timeoutTimer;
     protected Configuration clusterConfig;
     private final Map<Long, TimerTask> timedMessages;
-    protected final LinkedBlockingQueue<RaftMessage> outgoingMessages;
-    protected final LinkedBlockingQueue<RaftMessage> incomingMessages;
+    public final LinkedBlockingQueue<RaftMessage> outgoingMessages;
+    public final LinkedBlockingQueue<RaftMessage> incomingMessages;
     private Selector incomingMessageSelector;
     private List<SelectionKey> channelSelectionKeys;
 
