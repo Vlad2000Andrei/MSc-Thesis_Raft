@@ -45,7 +45,7 @@ public class ClassicRaftServer extends RaftServer {
 
     @Override
     public void runRaft() {
-        Crasher crasher = new Crasher(0.0001, Duration.ofSeconds(5), Duration.ofSeconds(7));
+        Crasher crasher = new Crasher(0.000025, Duration.ofSeconds(5), Duration.ofSeconds(7));
 
         Instant lastSimulatedEntryAt = Instant.now();
         while(true) {
