@@ -40,7 +40,10 @@ public class Crasher {
 //        System.out.printf("[Crasher] chance: %d \tthresh: %d\n", chance, threshold);
         if (chance > threshold) return;
 
+        crash(server);
+    }
 
+    public void crash(ClassicRaftServer server) {
         long millis = rand.nextLong(minTime.toMillis(), maxTime.toMillis());
         Instant endPoint = Instant.now().plus(Duration.ofMillis(millis));
 

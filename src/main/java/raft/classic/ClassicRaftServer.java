@@ -1,6 +1,5 @@
 package raft.classic;
 
-import net.bytebuddy.pool.TypePool;
 import raft.benchmark.Crasher;
 import raft.common.*;
 import raft.messaging.common.ControlMessage;
@@ -20,8 +19,6 @@ import java.time.Instant;
 import java.util.*;
 
 public class ClassicRaftServer extends RaftServer {
-
-    // State for this implementation
 
     public TimerTask heartbeatTimer;
     private int currentElectionVotes;
@@ -93,6 +90,7 @@ public class ClassicRaftServer extends RaftServer {
     private void handleAppendEntries (RaftMessage message){
         ControlMessage outcome;
         String reason = "";
+        System.out.printf("[AppendEntries] Received: %s from %s.\n", message, message.getSender());
 
         // Reply false if they are from a past term
         if (message.appendEntries.term() < currentTerm) {
@@ -109,12 +107,17 @@ public class ClassicRaftServer extends RaftServer {
             // Try to insert the entries
             boolean inserted = tryStoreEntry(message.appendEntries);
 
-            outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, inserted, message.appendEntries.prevLogIdx() + 1);
+            if (message.appendEntries.leaderCommit() > log.getCommittedIndex()) {
+                int newCommittedIndex = Math.min(message.appendEntries.leaderCommit(), log.getSize());
+                log.setCommittedIndex(newCommittedIndex);
+            }
+
+            outcome = new ControlMessage(ControlMessageType.APPEND_ENTRIES_RESULT, currentTerm, inserted, message.appendEntries.prevLogIdx() + message.appendEntries.entries().size());
             clearElectionTimeout();
         }
 
         if (outcome.result()) {
-            System.out.printf(Colors.GREEN + "[AppendEntries] Server %d accepted %d new entries from %s. Log size: %d.\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.getSender(), log.getLastIndex() + 1);
+            System.out.printf(Colors.GREEN + "[AppendEntries] Server %d accepted %d new term %d entries from %s. Log size: %d (cIdx: %d).\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.appendEntries.term(), message.getSender(), log.getSize(), log.getCommittedIndex());
         }
         else {
             System.out.printf(Colors.YELLOW + "[AppendEntries] Server %d rejected %d new entries from %s: %s\n" + Colors.RESET, id, message.appendEntries.entries().size(), message.getSender(), reason);
@@ -236,14 +239,14 @@ public class ClassicRaftServer extends RaftServer {
                                 log.getLastIndex(),
                                 log.getLast().term(),
                                 List.of(),
-                                log.committedIndex.get()
+                                log.getCommittedIndex()
                         )));
             }
         };
 
         timeoutTimer.scheduleAtFixedRate(
                heartbeatTimer,
-                0,
+                HEARTBEAT_INTERVAL.toMillis() * 2,
                 HEARTBEAT_INTERVAL.toMillis()
         );
     }
@@ -252,9 +255,11 @@ public class ClassicRaftServer extends RaftServer {
         try {
             if (heartbeatTimer != null) {
                 heartbeatTimer.cancel();
+                Thread.sleep(HEARTBEAT_INTERVAL.toMillis() * 2);
             }
         }
         catch (IllegalStateException ignored) {}
+        catch (InterruptedException ignored) {}
         finally {
             heartbeatTimer = null;
         }
@@ -307,7 +312,7 @@ public class ClassicRaftServer extends RaftServer {
 
     public void clearElectionTimeout() {
         electionTimeoutStartInstant = Instant.now();
-        System.out.printf(Colors.PURPLE + "[Election] Server %d reset election timeout of %dms at %s.\n" + Colors.RESET, id, electionTimeout.toMillis(), Instant.now());
+//        System.out.printf(Colors.PURPLE + "[Election] Server %d reset election timeout of %dms at %s.\n" + Colors.RESET, id, electionTimeout.toMillis(), Instant.now());
     }
 
     private void setCurrentTerm (int newTerm) {
@@ -317,45 +322,6 @@ public class ClassicRaftServer extends RaftServer {
         }
         else {
             throw new RuntimeException(String.format("Trying to switch turn to %d from %d", newTerm, currentTerm));
-        }
-    }
-
-    public static void main (String[] args) {
-        try {
-            int ownId = Integer.parseInt(args[0]);
-            String configFilePath = args[1];
-
-            File configFile = new File(configFilePath);
-            FileInputStream fis = new FileInputStream(configFile);
-            Scanner fileScanner = new Scanner(fis);
-
-            List<Node<RaftMessage>> peers = new ArrayList<>();
-            RaftServer thisServer = null;
-
-            while (fileScanner.hasNextLine()) {
-                String line = fileScanner.nextLine();
-                String[] peerDetails = line.split(" ");
-                System.out.println(Arrays.toString(peerDetails));
-
-                int peerId = Integer.parseInt(peerDetails[0]);
-                String peerAddress = peerDetails[1];
-                int peerPort = Integer.parseInt(peerDetails[2]);
-
-                if (peerId == ownId) {
-                    thisServer = new ClassicRaftServer(new InetSocketAddress(peerAddress, peerPort));
-                    thisServer.id = ownId;
-                    peers.add(thisServer);
-                }
-                else {
-                    peers.add(new Node<RaftMessage>(new InetSocketAddress(peerAddress, peerPort)).setId(peerId));
-                }
-            }
-
-            Configuration cluster = new Configuration(peers);
-            thisServer.start(cluster);
-        }
-        catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -420,7 +386,7 @@ public class ClassicRaftServer extends RaftServer {
                 previousEntryIdx,
                 previousEntry.term(),
                 List.of(log.get(idx)),
-                log.committedIndex.get());
+                log.getCommittedIndex());
         return new RaftMessage(appendEntries);//.setTimeout(HEARTBEAT_INTERVAL);
     }
 
@@ -440,5 +406,45 @@ public class ClassicRaftServer extends RaftServer {
                         System.out.printf(Colors.YELLOW + "[Timing] Skipping updates for Server %d because it cannot be found.\n" + Colors.RESET, entry.getKey());
                     }
                 });
+    }
+
+    public static void main (String[] args) {
+        try {
+            int ownId = Integer.parseInt(args[0]);
+            String configFilePath = args[1];
+
+            File configFile = new File(configFilePath);
+            FileInputStream fis = new FileInputStream(configFile);
+            Scanner fileScanner = new Scanner(fis);
+
+            List<Node<RaftMessage>> peers = new ArrayList<>();
+            RaftServer thisServer = null;
+
+            while (fileScanner.hasNextLine()) {
+                String line = fileScanner.nextLine();
+                String[] peerDetails = line.split(" ");
+                System.out.println(Arrays.toString(peerDetails));
+
+                int peerId = Integer.parseInt(peerDetails[0]);
+                String peerAddress = peerDetails[1];
+                int peerPort = Integer.parseInt(peerDetails[2]);
+
+                if (peerId == ownId) {
+                    thisServer = new ClassicRaftServer(new InetSocketAddress(peerAddress, peerPort));
+                    thisServer.id = ownId;
+                    peers.add(thisServer);
+                }
+                else {
+                    peers.add(new Node<RaftMessage>(new InetSocketAddress(peerAddress, peerPort)).setId(peerId));
+                }
+            }
+            fis.close();
+
+            Configuration cluster = new Configuration(peers);
+            thisServer.start(cluster);
+        }
+        catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }

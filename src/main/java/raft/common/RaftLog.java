@@ -2,13 +2,10 @@ package raft.common;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.lang.reflect.Array;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.BaseStream;
 
 public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
@@ -31,7 +28,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     public void add(LogEntry entry) {
         synchronized (entries) {
             entries.add(entry);
-            size.set(entries.size());
+            setSize(entries.size());
         }
     }
 
@@ -80,33 +77,42 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
     public LogEntry getLast() {
         synchronized (entries) {
-            return entries.get(committedIndex.get());
+            return entries.get(getLastIndex());
         }
     }
 
     public int getLastIndex() {
-        return committedIndex.get();
+        return getSize() - 1;
     }
 
     public boolean hasMatchingEntry (int idx, int term) {
-        if (idx >= size()) return false;
+        if (idx >= getSize()) return false;
         if (entries.get(idx).term() != term) return false;
         else return true;
     }
 
     public void insertEntry (int idx, LogEntry entry) {
-        // Remove any entries after this
         synchronized (entries) {
+            // Remove any entries after this
             while (entries.size() > idx) {
-                System.out.printf(Colors.CYAN + "Removing entry at %d to insert %s at %d.\n" + Colors.RESET, entries.size()-1, entry, idx);
+                System.out.printf(Colors.CYAN + "Removing entry %s at %d to insert %s at %d.\n" + Colors.RESET, entries.getLast(), entries.size()-1, entry, idx);
                 entries.removeLast();
             }
+            setSize(entries.size());
+            // Add the new one
             if (entry != null) add(entry);
-            size.set(entries.size());
         }
     }
 
-    private int size() {
+    public int getSize() {
         return size.get();
+    }
+
+    private void setSize(int newSize) {
+        if (newSize <= committedIndex.get()) {
+            System.out.printf(Colors.CYAN + "[RaftLog] Illegal log shrink to %d (below commit index of %d) detected!\n", newSize, committedIndex.get());
+            System.exit(1);
+        }
+        size.set(newSize);
     }
 }

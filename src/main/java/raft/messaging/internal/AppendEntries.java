@@ -15,7 +15,7 @@ public record AppendEntries(
 ) {
     @Override
     public String toString() {
-        return String.format("[AppendEntries] Term: %d \tLeader ID: %d \tPrevious Entry: leader %d in term %d \tLast Committed: %d \tEntries: %s. \t Timestamp: %s",
+        return String.format("[AppendEntries] Term: %d \tLeader ID: %d \tPrevious Entry: idx %d in term %d \tLast Committed: %d \tEntries: %s. \t Timestamp: %s",
                 term, id, prevLogIdx, prevLogTerm, leaderCommit, entries, Instant.now());
     }
 }
