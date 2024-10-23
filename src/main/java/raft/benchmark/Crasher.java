@@ -15,20 +15,25 @@ public class Crasher {
     private Duration maxTime;
     private Random rand;
     private Instant lastCheck;
+    private Instant lastCrash;
+    private Duration minTimeBetween;
 
-    public Crasher (double probabilityPerMilli, Duration minTime, Duration maxTime) {
+    public Crasher (double probabilityPerMilli, Duration minTime, Duration maxTime, Duration minTimeBetween) {
         threshold = (int) (1_000_000_000 * probabilityPerMilli);
         this.minTime = minTime;
         this.maxTime = maxTime;
+        this.minTimeBetween = minTimeBetween;
         rand = new Random();
         lastCheck = Instant.now();
+        lastCrash = Instant.now();
     }
 
     public Crasher (double probability) {
         this(
                 probability,
                 Duration.ofSeconds(5),
-                Duration.ofSeconds(15)
+                Duration.ofSeconds(15),
+                Duration.ofSeconds(10)
         );
     }
 
@@ -42,6 +47,7 @@ public class Crasher {
     }
 
     public void tryCrash(ClassicRaftServer server, boolean preferLeader) {
+        if (Duration.between(lastCrash, Instant.now()).toMillis() < minTimeBetween.toMillis()) return;
         if (Duration.between(lastCheck, Instant.now()).toMillis() < 1) return;
 
         int chance = rand.nextInt(1_000_000_000);
@@ -49,6 +55,8 @@ public class Crasher {
         if (chance > threshold) return;
 
         crash(server);
+
+        lastCrash = Instant.now();
     }
 
     public void crash(ClassicRaftServer server) {
@@ -57,18 +65,18 @@ public class Crasher {
 
         server.descheduleHeartbeatMessage();
 
-        System.out.printf(Colors.RED + "-------=========[CRASH]=========-------\n Crashing for %ds %dms\n-------=========#######=========-------\n" + Colors.RESET,
+        System.out.printf(Colors.RED + "-------=========[CRASH]=========-------\n Crashing for %ds %dms. Last crash %dms ago.\n-------=========#######=========-------\n" + Colors.RESET,
                 Duration.ofMillis(millis).toSecondsPart(),
-                Duration.ofMillis(millis).toMillisPart());
+                Duration.ofMillis(millis).toMillisPart(),
+                Duration.between(lastCrash, Instant.now()).toMillis());
 
+        // Sleep for crash time to block thread.
         while (Instant.now().isBefore(endPoint)) {
             try {
                 long toSleep = Duration.between(Instant.now(), endPoint).toMillis();
                 Thread.sleep(toSleep);
             }
-            catch (InterruptedException e) {
-                continue;
-            }
+            catch (InterruptedException | IllegalArgumentException ignored) { } // if we get interrupted while sleeping or the Duration.between is negative
         }
 
         System.out.println(Colors.RED + "[RECOVERY] Recovered from crash!" + Colors.RESET);

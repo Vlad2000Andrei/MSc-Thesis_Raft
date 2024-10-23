@@ -56,8 +56,8 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 //            System.exit(1);
         }
 
+        if(newIndex > committedIndex.get()) System.out.printf(Colors.CYAN + "[RaftLog] All entries up to %d now committed. (Last Idx: %d)\n" + Colors.RESET, newIndex, getLastIndex());
         committedIndex.set(newIndex);
-        if(newIndex > committedIndex.get()) System.out.printf(Colors.CYAN + "[RaftLog] All entries up to %d now committed.\n" + Colors.RESET, newIndex);
     }
 
     @Override

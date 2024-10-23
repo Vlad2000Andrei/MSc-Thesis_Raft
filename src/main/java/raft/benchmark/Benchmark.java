@@ -23,7 +23,7 @@ public class Benchmark {
 
             // Benchmark with local server
 //            stressTestEcho(4, 100_000, 55000);
-            spawn3Servers();
+            spawn2Servers();
         }
 
 
