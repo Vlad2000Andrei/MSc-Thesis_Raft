@@ -2,6 +2,7 @@ package raft.common;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -15,7 +16,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     public AtomicInteger size;
 
     public RaftLog() {
-        entries = new ArrayList<>(List.of(new LogEntry(0)));
+        entries = new ArrayList<>(List.of(new LogEntry(0, -1, null)));
         committedIndex = new AtomicInteger(0);
         lastApplied = new AtomicInteger(0);
         size = new AtomicInteger(entries.size());
@@ -81,6 +82,17 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
         }
         else {
             result = getLastIndex() <= otherLastAppliedIdx;
+        }
+        return result;
+    }
+
+    public boolean asUpToDateAsOther(int otherLastTerm, int otherLastAppliedIdx) {
+        boolean result;
+        if (getLast().term() != otherLastTerm) {
+            result = getLast().term() >= otherLastTerm;
+        }
+        else {
+            result = getLastIndex() >= otherLastAppliedIdx;
         }
         return result;
     }

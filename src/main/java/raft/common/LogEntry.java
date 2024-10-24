@@ -1,3 +1,10 @@
 package raft.common;
 
-public record LogEntry(int term) {}
+import java.io.Serializable;
+import java.time.Instant;
+
+public record LogEntry(
+        int term,
+        int leaderId,
+        Instant creationTime
+) implements Serializable {}

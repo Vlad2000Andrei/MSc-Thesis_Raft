@@ -1,4 +1,4 @@
-package raft.classic;
+package raft.servers;
 
 import raft.messaging.common.RaftMessage;
 import raft.common.RaftServer;

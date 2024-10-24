@@ -50,7 +50,7 @@
         <configuration>
           <archive>
             <manifest>
-              <mainClass>raft.classic.ClassicRaftServer</mainClass>
+              <mainClass>raft.benchmark.Benchmark</mainClass>
             </manifest>
           </archive>
           <descriptorRefs>
