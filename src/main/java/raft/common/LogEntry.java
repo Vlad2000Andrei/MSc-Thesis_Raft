@@ -6,5 +6,6 @@ import java.time.Instant;
 public record LogEntry(
         int term,
         int leaderId,
-        Instant creationTime
+        Instant creationTime,
+        Instant storageTime
 ) implements Serializable {}

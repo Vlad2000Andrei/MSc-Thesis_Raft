@@ -220,7 +220,7 @@ public class ClassicRaftServer extends RaftServer {
                 System.out.printf("[Infra] Server %d connected to %s. It now knows: \n\t- Servers: %s \n\t- Connections: %s\n", id, message.getSender(), servers, connections.values());
             }
 
-            case null, default -> System.out.printf("RaftMessage with SEQ %d has unimplemented control type.\n", message.getSequenceNr());
+            default -> System.out.printf("RaftMessage with SEQ %d has unimplemented control type.\n", message.getSequenceNr());
         }
     }
 
@@ -372,12 +372,12 @@ public class ClassicRaftServer extends RaftServer {
         return servers.stream()
                 .filter(node -> node.id != null && node.id == serverId) // node.id == null if we run this before a server has connected
                 .toList()
-                .getFirst();
+                .get(0);
     }
 
     private void createEntry() {
         // Create new entry
-        LogEntry entry = new LogEntry(currentTerm, id, Instant.now());
+        LogEntry entry = new LogEntry(currentTerm, id, Instant.now(), Instant.now());
         log.add(entry);
         matchIndex.put(id, log.getLastIndex()); // Count self for committing purposes
 
@@ -388,7 +388,7 @@ public class ClassicRaftServer extends RaftServer {
     private boolean tryStoreEntry (AppendEntries msg) {
         if (log.hasMatchingEntry(msg.prevLogIdx(), msg.prevLogTerm())) {
             LogEntry entryToInsert = null;
-            if (!msg.entries().isEmpty()) entryToInsert = msg.entries().getFirst();
+            if (!msg.entries().isEmpty()) entryToInsert = msg.entries().get(0);
 
             log.insertEntry(msg.prevLogIdx() + 1, entryToInsert);
             return true;

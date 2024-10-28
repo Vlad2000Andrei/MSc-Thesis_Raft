@@ -216,7 +216,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     public void queueServerBroadcast (RaftMessage message) {
-        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s\n", id, message, servers.size(), servers.stream().toList());
+//        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s\n", id, message, servers.size(), servers.stream().toList());
         queueMessage(message, servers.stream().toList());
     }
 

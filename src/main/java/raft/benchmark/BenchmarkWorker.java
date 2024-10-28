@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Scanner;
 
 public class BenchmarkWorker implements Runnable {
-    private enum WorkerType {
+    protected enum WorkerType {
         CLASSIC,
         MODIFIED
     }
@@ -31,7 +31,6 @@ public class BenchmarkWorker implements Runnable {
     private WorkerType workerType;
     private String configFilePath;
     private int ownId;
-
     private RaftServer server;
 
     public BenchmarkWorker(InetSocketAddress controllerAddress, String configFilePath, int ownId) {
@@ -64,7 +63,6 @@ public class BenchmarkWorker implements Runnable {
             while (fileScanner.hasNextLine()) {
                 String line = fileScanner.nextLine();
                 String[] peerDetails = line.split(" ");
-                System.out.println(Arrays.toString(peerDetails));
 
                 int peerId = Integer.parseInt(peerDetails[0]);
                 String peerAddress = peerDetails[1];
@@ -90,6 +88,7 @@ public class BenchmarkWorker implements Runnable {
         }
         catch (Exception e) {
             e.printStackTrace();
+            System.exit(1);
         }
     }
 
