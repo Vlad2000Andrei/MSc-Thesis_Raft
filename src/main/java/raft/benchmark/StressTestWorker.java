@@ -41,7 +41,7 @@ public class StressTestWorker implements Runnable {
             Instant currentIntervalStart = Instant.now();
 
             for (int i = 1; i <= opCount; i++) {
-                RaftMessage msg = new RaftMessage(null, null, null);
+                RaftMessage msg = new RaftMessage(null, null, null, null, null);
                 toServer.send(msg);
 //                Thread.sleep(5000);
                 RaftMessage response = toServer.receive();

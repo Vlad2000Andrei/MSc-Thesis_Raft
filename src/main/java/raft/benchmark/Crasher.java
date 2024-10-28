@@ -1,6 +1,6 @@
 package raft.benchmark;
 
-import raft.classic.ClassicRaftServer;
+import raft.servers.ClassicRaftServer;
 import raft.common.Colors;
 import raft.common.ServerRole;
 

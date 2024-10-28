@@ -5,7 +5,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import raft.messaging.internal.AppendEntries;
+import raft.messaging.internal.AppendEntriesResponse;
 import raft.messaging.internal.RequestVote;
+import raft.messaging.internal.RequestVoteResponse;
 import raft.network.Node;
 
 import java.io.Serializable;
@@ -29,8 +31,15 @@ public class RaftMessage implements Message, Serializable {
     public ControlMessage controlMessage;
     public AppendEntries appendEntries;
     public RequestVote requestVote;
+    public AppendEntriesResponse appendEntriesResponse;
+    public RequestVoteResponse requestVoteResponse;
 
-    public RaftMessage(@Nullable ControlMessage controlMessage, @Nullable AppendEntries appendEntries, @Nullable RequestVote requestVote, long ackNr, long sequenceNr) {
+    public RaftMessage(@Nullable ControlMessage controlMessage,
+                       @Nullable AppendEntries appendEntries,
+                       @Nullable RequestVote requestVote,
+                       @Nullable AppendEntriesResponse appendEntriesResponse,
+                       @Nullable RequestVoteResponse requestVoteResponse,
+                       long ackNr, long sequenceNr) {
         if (sequenceNr == -1) {
             this.sequenceNr = nextSequenceNr.getAndIncrement();
         }
@@ -42,7 +51,10 @@ public class RaftMessage implements Message, Serializable {
         this.controlMessage = controlMessage;
         this.appendEntries = appendEntries;
         this.requestVote = requestVote;
+        this.appendEntriesResponse = appendEntriesResponse;
+        this.requestVoteResponse = requestVoteResponse;
         this.ackNr = ackNr;
+
 
         timeout = null;
     }
@@ -51,6 +63,8 @@ public class RaftMessage implements Message, Serializable {
         this(toCopy.controlMessage,
                 toCopy.appendEntries,
                 toCopy.requestVote,
+                toCopy.appendEntriesResponse,
+                toCopy.requestVoteResponse,
                 toCopy.ackNr,
                 -1);
         setReceiver(toCopy.getReceiver());
@@ -58,28 +72,40 @@ public class RaftMessage implements Message, Serializable {
         setTimeout(toCopy.getTimeout());
     }
 
-    public RaftMessage(@Nullable ControlMessage ctrl, @Nullable AppendEntries append, @Nullable RequestVote reqVote) {
-        this(ctrl, append, reqVote, -1, -1);
+    public RaftMessage(@Nullable ControlMessage ctrl,
+                       @Nullable AppendEntries append,
+                       @Nullable RequestVote reqVote,
+                       @Nullable AppendEntriesResponse appendResp,
+                       @Nullable RequestVoteResponse reqVoteResp) {
+        this(ctrl, append, reqVote, appendResp, reqVoteResp, -1, -1);
     }
 
     public RaftMessage(ControlMessage controlMessage) {
-        this(controlMessage, null, null);
+        this(controlMessage, null, null, null, null);
     }
 
     public RaftMessage(AppendEntries appendEntries) {
-        this(null, appendEntries, null);
+        this(null, appendEntries, null, null, null);
     }
 
     public RaftMessage(RequestVote requestVote) {
-        this(null, null, requestVote);
+        this(null, null, requestVote, null, null);
+    }
+
+    public RaftMessage(AppendEntriesResponse appendEntriesResponse) {
+        this(null, null, null, appendEntriesResponse, null);
+    }
+
+    public RaftMessage(RequestVoteResponse requestVoteResponse) {
+        this(null, null, null, null, requestVoteResponse);
     }
 
     public RaftMessage(long ackNr) {
-        this(null, null, null, ackNr, -1);
+        this(null, null, null, null, null, ackNr, -1);
     }
 
     public RaftMessage() {
-        this(null, null, null);
+        this(null, null, null, null, null);
     }
 
     @JsonIgnore
@@ -143,6 +169,22 @@ public class RaftMessage implements Message, Serializable {
         this.requestVote = requestVote;
     }
 
+    public AppendEntriesResponse getAppendEntriesResponse() {
+        return appendEntriesResponse;
+    }
+
+    public void setAppendEntriesResponse(AppendEntriesResponse appendEntriesResponse) {
+        this.appendEntriesResponse = appendEntriesResponse;
+    }
+
+    public RequestVoteResponse getRequestVoteResponse() {
+        return requestVoteResponse;
+    }
+
+    public void setRequestVoteResponse(RequestVoteResponse requestVoteResponse) {
+        this.requestVoteResponse = requestVoteResponse;
+    }
+
     public long getSequenceNr() {
         return sequenceNr;
     }
@@ -163,11 +205,13 @@ public class RaftMessage implements Message, Serializable {
 
     @Override
     public String toString() {
-        return String.format("SEQ: %d \tACK: %d \tCTRL: %s \tRV: %s \tAE: %s",
+        return String.format("SEQ: %d, ACK: %d, CTRL: %s, RV: %s, AE: %s, RVR: %s, AER: %s",
                 sequenceNr,
                 ackNr,
                 controlMessage,
                 requestVote,
-                appendEntries);
+                appendEntries,
+                requestVoteResponse,
+                appendEntriesResponse);
     }
 }

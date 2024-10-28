@@ -2,20 +2,22 @@ package raft.common;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
-    private final List<LogEntry> entries;
+    private final LinkedList<LogEntry> entries;
     public AtomicInteger committedIndex;
     private AtomicInteger lastApplied;
     public AtomicInteger size;
 
     public RaftLog() {
-        entries = new ArrayList<>(List.of(new LogEntry(0)));
+        entries = new LinkedList<>(List.of(new LogEntry(0, -1, null, null)));
         committedIndex = new AtomicInteger(0);
         lastApplied = new AtomicInteger(0);
         size = new AtomicInteger(entries.size());
@@ -27,6 +29,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
     public void add(LogEntry entry) {
         synchronized (entries) {
+            entry = new LogEntry(entry.term(), entry.leaderId(), entry.creationTime(), Instant.now()); // set storage time
             entries.add(entry);
             setSize(entries.size());
         }
@@ -47,16 +50,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     }
 
     public void setCommittedIndex(Integer newIndex) {
-        if (newIndex - committedIndex.get() > 1) {
-            System.out.printf(Colors.CYAN + "[RaftLog] Commit index skipping from %d to %d.\n" + Colors.RESET, committedIndex.get(), newIndex);
-//            System.exit(1);
-        }
-        if (newIndex - committedIndex.get() < 0) {
-            System.out.printf(Colors.CYAN + "[RaftLog] Commit index going backwards %d to %d.\n" + Colors.RESET, committedIndex.get(), newIndex);
-//            System.exit(1);
-        }
-
-        if(newIndex > committedIndex.get()) System.out.printf(Colors.CYAN + "[RaftLog] All entries up to %d now committed. (Last Idx: %d)\n" + Colors.RESET, newIndex, getLastIndex());
+//        if(newIndex > committedIndex.get()) System.out.printf(Colors.CYAN + "[RaftLog] All entries up to %d now committed. (Last Idx: %d)\n" + Colors.RESET, newIndex, getLastIndex());
         committedIndex.set(newIndex);
     }
 
@@ -85,6 +79,17 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
         return result;
     }
 
+    public boolean asUpToDateAsOther(int otherLastTerm, int otherLastAppliedIdx) {
+        boolean result;
+        if (getLast().term() != otherLastTerm) {
+            result = getLast().term() >= otherLastTerm;
+        }
+        else {
+            result = getLastIndex() >= otherLastAppliedIdx;
+        }
+        return result;
+    }
+
     public LogEntry getLast() {
         synchronized (entries) {
             return entries.get(getLastIndex());
@@ -105,10 +110,11 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
         synchronized (entries) {
             // If there are conflicting entries, remove them
             while (entries.size() > idx) {
+
 //                System.out.printf(Colors.CYAN + "Removing entry %s at %d to insert %s at %d.\n" + Colors.RESET, entries.getLast(), entries.size()-1, entry, idx);
                 entries.removeLast();
             }
-            if (entry != null) entries.add(entry);
+            if (entry != null) add(entry);
             setSize(entries.size());
         }
     }
@@ -119,7 +125,7 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
 
     private void setSize(int newSize) {
         if (newSize <= committedIndex.get()) {
-            System.out.printf(Colors.CYAN + "[RaftLog] Log shrink to %d (below commit index of %d) detected!\n", newSize, committedIndex.get());
+//            System.out.printf(Colors.CYAN + "[RaftLog] Log shrink to %d (below commit index of %d) detected!\n", newSize, committedIndex.get());
             // Paper says commitIndex increases monotonically, but the TLA+ spec overwrites it anyways, so we'll go with it?
 //            System.exit(1);
         }

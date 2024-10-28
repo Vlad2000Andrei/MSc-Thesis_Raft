@@ -1,10 +1,8 @@
 package raft.common;
 
 import org.jetbrains.annotations.NotNull;
-import raft.classic.EchoRaftServer;
 import raft.messaging.common.ControlMessage;
 import raft.messaging.common.ControlMessageType;
-import raft.messaging.common.MessageStatus;
 import raft.messaging.common.RaftMessage;
 import raft.network.Configuration;
 import raft.network.Node;
@@ -12,7 +10,6 @@ import raft.network.SocketConnection;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
@@ -22,8 +19,6 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Predicate;
 
 public abstract class RaftServer extends Node<RaftMessage> {
     protected final Duration HEARTBEAT_INTERVAL = Duration.ofMillis(100);
@@ -32,6 +27,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
     protected final Duration MSG_RETRY_INTERVAL = Duration.ofMillis(50);
     protected Duration electionTimeout = Duration.ofSeconds(5);
     protected Instant electionTimeoutStartInstant;
+    protected RaftLog log;
+    protected ServerRole role;
 
 
     private ServerSocketChannel serverSocketChannel;
@@ -69,6 +66,8 @@ public abstract class RaftServer extends Node<RaftMessage> {
         channelSelectionKeys = new ArrayList<>();
         timeoutTimer = new Timer("Timeout Timer");
         timedMessages = new ConcurrentHashMap<>();
+        log = new RaftLog();
+        role = ServerRole.FOLLOWER;
     }
 
     public void start(Configuration config) {
@@ -217,7 +216,7 @@ public abstract class RaftServer extends Node<RaftMessage> {
     }
 
     public void queueServerBroadcast (RaftMessage message) {
-        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s\n", id, message, servers.size(), servers.stream().toList());
+//        System.out.printf("[Broadcast] Server %d broadcasting %s to %d servers: %s\n", id, message, servers.size(), servers.stream().toList());
         queueMessage(message, servers.stream().toList());
     }
 
@@ -332,5 +331,9 @@ public abstract class RaftServer extends Node<RaftMessage> {
     @Override
     public String toString() {
         return String.format("Server %d", id);
+    }
+
+    public RaftLog getLog() {
+        return log;
     }
 }
