@@ -121,6 +121,9 @@ public class BenchmarkWorker implements Runnable {
                         BenchmarkControlMessage response = new BenchmarkControlMessage(BenchmarkControlMessageType.STOP_OK, null, server.id);
                         System.exit(0);
                     }
+                    case CRASH -> {
+                        if (server != null) server.crashNow = true;
+                    }
                 }
             }
             catch (IOException | ClassNotFoundException e) {

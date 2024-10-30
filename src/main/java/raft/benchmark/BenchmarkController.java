@@ -28,12 +28,12 @@ public class BenchmarkController implements Runnable {
     private Integer numWorkers = null;
     private BenchmarkControlMessageType serverType = null;
 
-
     public BenchmarkController(String bindAddress, Integer bindPort, Integer numWorkers, Integer timeLimitMin, String serverType) {
         stopTimer = new Timer();
         outputStreams = new ConcurrentHashMap<>();
         mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
+
         try {
             InetSocketAddress socketAddress = new InetSocketAddress(bindAddress, bindPort);
             serverSocket = new ServerSocket();
@@ -127,6 +127,25 @@ public class BenchmarkController implements Runnable {
         }
     }
 
+    private void manageCrashes() {
+        CrashController crashController = new CrashController(0.00005, 0);
+        BenchmarkControlMessage crashMessage = new BenchmarkControlMessage(BenchmarkControlMessageType.CRASH, null, null);
+        while(true) {
+            try {
+                for (int serverId : outputStreams.keySet()) {
+                    if (crashController.checkCrash(serverId)) {
+                        try {
+                            System.out.println("Trying to crash server " + serverId);
+                            outputStreams.get(serverId).writeObject(crashMessage);
+                        } catch (IOException ignored) {}
+                    }
+                }
+                Thread.sleep(1);
+            }
+            catch (InterruptedException ignored) {}
+        }
+    }
+
     private void writeLogEntries (BenchmarkControlMessage logOkMessage) {
         String filePath = String.format("./%d_server_log.raftlog", logOkMessage.serverId());
         try (FileOutputStream fos = new FileOutputStream(filePath)) {
@@ -186,6 +205,10 @@ public class BenchmarkController implements Runnable {
         Thread acceptingConnectionsThread = new Thread(this::acceptConnections);
         acceptingConnectionsThread.setDaemon(true);
         acceptingConnectionsThread.start();
+
+        Thread crashManagerThread = new Thread(this::manageCrashes);
+        crashManagerThread.setDaemon(true);
+        crashManagerThread.start();
 
         if (numWorkers != null) {
             while (outputStreams.size() < numWorkers) {

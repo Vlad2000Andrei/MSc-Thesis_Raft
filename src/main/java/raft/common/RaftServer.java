@@ -1,6 +1,7 @@
 package raft.common;
 
 import org.jetbrains.annotations.NotNull;
+import raft.benchmark.Crasher;
 import raft.messaging.common.ControlMessage;
 import raft.messaging.common.ControlMessageType;
 import raft.messaging.common.RaftMessage;
@@ -29,6 +30,9 @@ public abstract class RaftServer extends Node<RaftMessage> {
     protected Instant electionTimeoutStartInstant;
     protected RaftLog log;
     protected ServerRole role;
+    public Crasher crasher;
+    public volatile boolean crashNow = false;
+    public boolean controllerCrashes = true;
 
 
     private ServerSocketChannel serverSocketChannel;

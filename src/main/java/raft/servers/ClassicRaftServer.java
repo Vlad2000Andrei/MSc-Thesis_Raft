@@ -32,11 +32,11 @@ public class ClassicRaftServer extends RaftServer {
         currentTerm = 0;
         electionTimeoutStartInstant = Instant.now();
         heartbeatTimer = null;
+        crasher = new Crasher(0.0005, Duration.ofSeconds(5), Duration.ofSeconds(7), Duration.ofSeconds(15));
     }
 
     @Override
     public void runRaft() {
-        Crasher crasher = new Crasher(0.0005, Duration.ofSeconds(5), Duration.ofSeconds(7), Duration.ofSeconds(15));
         Instant lastSimulatedEntryAt = Instant.now();
         while(true) {
             try {

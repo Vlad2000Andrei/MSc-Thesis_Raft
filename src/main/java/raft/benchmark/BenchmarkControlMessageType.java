@@ -9,5 +9,6 @@ public enum BenchmarkControlMessageType implements Serializable {
     STOP_OK,
     START_CLASSIC,
     START_MODIFIED,
-    HELLO
+    HELLO,
+    CRASH
 }

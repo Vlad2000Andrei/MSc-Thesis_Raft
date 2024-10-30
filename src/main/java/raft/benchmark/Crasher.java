@@ -48,15 +48,20 @@ public class Crasher {
 
     public void tryCrash(ClassicRaftServer server, boolean preferLeader) {
         if (Duration.between(lastCrash, Instant.now()).toMillis() < minTimeBetween.toMillis()) return;
-        if (Duration.between(lastCheck, Instant.now()).toMillis() < 1) return;
 
-        int chance = rand.nextInt(1_000_000_000);
-        if (preferLeader && server.getRole() == ServerRole.LEADER) chance = chance / 2;
-        if (chance > threshold) return;
+        if (!server.controllerCrashes) {
+            if (Duration.between(lastCheck, Instant.now()).toMillis() < 1) return;
 
-        crash(server);
+            int chance = rand.nextInt(1_000_000_000);
+            if (preferLeader && server.getRole() == ServerRole.LEADER) chance = chance / 2;
+            if (chance > threshold) return;
 
-        lastCrash = Instant.now();
+            crash(server);
+        }
+        else if (server.crashNow) {
+            crash(server);
+            server.crashNow = false;
+        }
     }
 
     public void crash(ClassicRaftServer server) {
@@ -87,5 +92,6 @@ public class Crasher {
 
         if (server.getRole() == ServerRole.LEADER) server.scheduleHeartbeatMessages();
         server.clearElectionTimeout();
+        lastCrash = Instant.now();
     }
 }
