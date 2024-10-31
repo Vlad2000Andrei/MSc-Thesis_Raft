@@ -36,7 +36,10 @@ public class RaftLog implements Iterable<LogEntry>, Comparable<RaftLog> {
     }
 
     public List<LogEntry> getEntries() {
-        return new ArrayList<>(entries);
+        synchronized (entries) {
+            LinkedList<LogEntry> copy = new LinkedList<>(entries);
+            return copy;
+        }
     }
 
     @NotNull

@@ -3,10 +3,7 @@ package raft.benchmark;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -85,7 +82,7 @@ public class BenchmarkController implements Runnable {
                         }
                     }
                 }
-                catch (SocketException se) {
+                catch (EOFException | SocketException se) {
                     outputStreams.remove(serverId);
                     System.out.printf("Lost connection to server %d, %d remaining.\n", serverId, outputStreams.size());
 
@@ -147,7 +144,15 @@ public class BenchmarkController implements Runnable {
     }
 
     private void writeLogEntries (BenchmarkControlMessage logOkMessage) {
-        String filePath = String.format("./%d_server_log.raftlog", logOkMessage.serverId());
+        // If we have a SLURM JOB ID use it in the filename
+        String filePath;
+        if (System.getenv().containsKey("LOGTAG")) {
+            filePath = String.format("./%d_server_log_%s.raftlog", logOkMessage.serverId(), System.getenv().get("LOGTAG"));
+        }
+        else {
+            filePath = String.format("./%d_server_log.raftlog", logOkMessage.serverId());
+        }
+
         try (FileOutputStream fos = new FileOutputStream(filePath)) {
             mapper.writeValue(fos, logOkMessage.logEntries());
         }
