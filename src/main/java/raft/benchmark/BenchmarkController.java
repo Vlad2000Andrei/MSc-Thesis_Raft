@@ -198,6 +198,9 @@ public class BenchmarkController implements Runnable {
                 @Override
                 public void run() {
                     requestLogs();
+                    try {
+                        Thread.sleep(Duration.ofSeconds(5).toMillis());
+                    } catch (InterruptedException ignored) {}
                     stopWorkers();
                 }
             };
@@ -225,48 +228,47 @@ public class BenchmarkController implements Runnable {
             System.out.printf("Starting %s on all %d workers for %d minutes.\n", serverType, outputStreams.size(), timeLimit.toMinutes());
             startScheduledRun(serverType);
         }
-
-        Scanner consoleScanner = new Scanner(System.in);
-        while(true) {
-            String line = consoleScanner.nextLine();
-            System.out.printf("Controller parsing command: '%s'\n", line);
-            try {
-                switch (line.toLowerCase()) {
-                    case "stop" -> {
-                        System.out.printf("Stopping all %d workers.\n", outputStreams.size());
-                        stopWorkers();
-                    }
-                    case "log", "logs" -> {
-                        System.out.printf("Requesting logs of all %d workers.\n", outputStreams.size());
-                        requestLogs();
-                    }
-                    case "start c", "start classic" -> {
-                        System.out.printf("Starting classic Raft on all %d workers.\n", outputStreams.size());
-                        startScheduledRun(BenchmarkControlMessageType.START_CLASSIC);
-                    }
-                    case "start m", "start modif", "start modified" -> {
-                        System.out.printf("Starting modified Raft on all %d workers.\n", outputStreams.size());
-                        startScheduledRun(BenchmarkControlMessageType.START_MODIFIED);
-                    }
-                    case "clear timer" -> {
-                        clearTimer();
-                    }
-                    case "set timer" -> {
-                        System.out.println("Enter timer duration in minutes: ");
-                        String input = consoleScanner.nextLine().strip();
-                        try {
-                            int minutes = Integer.parseInt(input);
-                            timeLimit = Duration.ofMinutes(minutes);
+        else {
+            Scanner consoleScanner = new Scanner(System.in);
+            while (true) {
+                String line = consoleScanner.nextLine();
+                System.out.printf("Controller parsing command: '%s'\n", line);
+                try {
+                    switch (line.toLowerCase()) {
+                        case "stop" -> {
+                            System.out.printf("Stopping all %d workers.\n", outputStreams.size());
+                            stopWorkers();
                         }
-                        catch (NumberFormatException nfe) {
-                            System.out.printf("Could not parse %s to number of minutes. Enter timer command again to retry.\n", input);
+                        case "log", "logs" -> {
+                            System.out.printf("Requesting logs of all %d workers.\n", outputStreams.size());
+                            requestLogs();
                         }
+                        case "start c", "start classic" -> {
+                            System.out.printf("Starting classic Raft on all %d workers.\n", outputStreams.size());
+                            startScheduledRun(BenchmarkControlMessageType.START_CLASSIC);
+                        }
+                        case "start m", "start modif", "start modified" -> {
+                            System.out.printf("Starting modified Raft on all %d workers.\n", outputStreams.size());
+                            startScheduledRun(BenchmarkControlMessageType.START_MODIFIED);
+                        }
+                        case "clear timer" -> {
+                            clearTimer();
+                        }
+                        case "set timer" -> {
+                            System.out.println("Enter timer duration in minutes: ");
+                            String input = consoleScanner.nextLine().strip();
+                            try {
+                                int minutes = Integer.parseInt(input);
+                                timeLimit = Duration.ofMinutes(minutes);
+                            } catch (NumberFormatException nfe) {
+                                System.out.printf("Could not parse %s to number of minutes. Enter timer command again to retry.\n", input);
+                            }
+                        }
+                        default -> System.out.printf("Unknown command: '%s'\n", line);
                     }
-                    default -> System.out.printf("Unknown command: '%s'\n", line);
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
-            }
-            catch (Exception e) {
-                e.printStackTrace();
             }
         }
     }

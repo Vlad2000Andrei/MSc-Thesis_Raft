@@ -28,7 +28,7 @@ public class BenchmarkWorker implements Runnable {
 
     private ObjectInputStream fromController = null;
     private ObjectOutputStream toController = null;
-    private WorkerType workerType;
+    private volatile WorkerType workerType;
     private String configFilePath;
     private int ownId;
     private RaftServer server;
@@ -72,6 +72,11 @@ public class BenchmarkWorker implements Runnable {
                     server = switch (workerType) {
                         case MODIFIED ->  new ModifiedRaftServer(new InetSocketAddress(peerAddress, peerPort));
                         case CLASSIC -> new ClassicRaftServer(new InetSocketAddress(peerAddress, peerPort));
+                        default -> {
+                            System.out.println("Unknown server type: " + workerType);
+                            System.exit(1);
+                            yield null;
+                        }
                     };
 
                     server.id = ownId;
@@ -128,6 +133,7 @@ public class BenchmarkWorker implements Runnable {
             }
             catch (IOException | ClassNotFoundException e) {
                 e.printStackTrace();
+                System.exit(1);
             }
         }
     }

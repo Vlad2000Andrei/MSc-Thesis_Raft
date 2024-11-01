@@ -45,11 +45,10 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
             ByteBuffer buf = ByteBuffer.allocate(Long.BYTES + data.length);
             buf.putLong(data.length);
             buf.put(data);
-//            System.out.printf("%s sending: %s\n", Thread.currentThread().getName(), new String(data));
 
             buf.flip();
-            if (socketChannel.write(buf) < buf.limit()) {
-                System.out.printf(Colors.GREEN + "[!] %s: Write incomplete to %s (Sending: %s)!\n" + Colors.RESET, Thread.currentThread().getName(), this.toString(), value);
+            while (buf.position() < buf.limit()) {
+                socketChannel.write(buf);
             }
             return true;
         }
@@ -68,7 +67,6 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
                 int result = socketChannel.read(sizeBuf);
                 if (result == -1) return null;
                 else if (result < sizeBuf.limit()) {
-                    System.out.printf(Colors.GREEN + "[!] %s: Header read incomplete (read: %d, needed: %d)!\n" + Colors.RESET, Thread.currentThread().getName(), result, sizeBuf.limit());
                     try {
                         Thread.sleep(20);
                     }
@@ -86,7 +84,6 @@ public class SocketConnection implements Connection <RaftMessage>, AutoCloseable
                 int result = socketChannel.read(dataBuf);
                 if (result == -1) return null;
                 else if (result < dataBuf.limit()) {
-                    System.out.printf(Colors.GREEN + "[!] %s: Body read incomplete!\n" + Colors.RESET, Thread.currentThread().getName());
                     try {
                         Thread.sleep(5);
                     }
