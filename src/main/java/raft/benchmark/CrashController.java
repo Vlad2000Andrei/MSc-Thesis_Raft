@@ -15,8 +15,8 @@ public class CrashController {
 
     public boolean checkCrash (int serverRank) {
         double chance = random.nextInt(1_000_000_000);
-        chance += serverRank * serverRankBias;
+        double crashThreshold = crashChance + (serverRank * serverRankBias);
 
-        return chance < crashChance;
+        return chance < crashThreshold;
     }
 }

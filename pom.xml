@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>raft</groupId>
-  <artifactId>MSc_Thesis_Raft</artifactId>
+  <artifactId>MSc_Thesis_Raft_Crash_Bias</artifactId>
   <version>0.1</version>
   <packaging>jar</packaging>
 

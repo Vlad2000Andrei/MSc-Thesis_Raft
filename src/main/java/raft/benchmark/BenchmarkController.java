@@ -125,7 +125,7 @@ public class BenchmarkController implements Runnable {
     }
 
     private void manageCrashes() {
-        CrashController crashController = new CrashController(0.00005, 0);
+        CrashController crashController = new CrashController(0.00004, -0.000002);
         BenchmarkControlMessage crashMessage = new BenchmarkControlMessage(BenchmarkControlMessageType.CRASH, null, null);
         while(true) {
             try {
