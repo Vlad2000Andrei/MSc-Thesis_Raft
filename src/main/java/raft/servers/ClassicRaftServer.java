@@ -32,7 +32,7 @@ public class ClassicRaftServer extends RaftServer {
         currentTerm = 0;
         electionTimeoutStartInstant = Instant.now();
         heartbeatTimer = null;
-        crasher = new Crasher(0.0005, Duration.ofSeconds(5), Duration.ofSeconds(7), Duration.ofSeconds(15));
+        crasher = new Crasher(0.0005, Duration.ofSeconds(5), Duration.ofSeconds(7), Duration.ofSeconds(45));
     }
 
     @Override
@@ -50,9 +50,9 @@ public class ClassicRaftServer extends RaftServer {
                     handleMessage(message);
                 }
 
-                // Pretent to get a client request
+                // Pretend to get a client request
                 if (role == ServerRole.LEADER) {
-                    if (Duration.between(lastSimulatedEntryAt, Instant.now()).toMillis() > 20) {
+                    if (Duration.between(lastSimulatedEntryAt, Instant.now()).toMillis() > 50) {
                         createEntry();
                         lastSimulatedEntryAt = Instant.now();
                     }

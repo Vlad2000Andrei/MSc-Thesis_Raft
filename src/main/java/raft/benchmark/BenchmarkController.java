@@ -24,12 +24,16 @@ public class BenchmarkController implements Runnable {
     private Timer stopTimer;
     private Integer numWorkers = null;
     private BenchmarkControlMessageType serverType = null;
+    private final double workerCrashChancePerMilli;
+    private final double workerCrashChanceRankBias;
 
-    public BenchmarkController(String bindAddress, Integer bindPort, Integer numWorkers, Integer timeLimitMin, String serverType) {
+    public BenchmarkController(String bindAddress, Integer bindPort, Integer numWorkers, Integer timeLimitMin, String serverType, double crashChance, double crashRankBias) {
         stopTimer = new Timer();
         outputStreams = new ConcurrentHashMap<>();
         mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
+        workerCrashChancePerMilli = crashChance;
+        workerCrashChanceRankBias = crashRankBias;
 
         try {
             InetSocketAddress socketAddress = new InetSocketAddress(bindAddress, bindPort);
@@ -57,7 +61,7 @@ public class BenchmarkController implements Runnable {
     }
 
     public BenchmarkController(String bindAddress, Integer bindPort) {
-        this(bindAddress, bindPort, null, null, null);
+        this(bindAddress, bindPort, null, null, null, 0.00005, 0);
     }
 
     private void handleConnection(ObjectInputStream fromWorker, ObjectOutputStream toWorker) {
@@ -125,12 +129,12 @@ public class BenchmarkController implements Runnable {
     }
 
     private void manageCrashes() {
-        CrashController crashController = new CrashController(0.00004, -0.000002);
+        CrashController crashController = new CrashController(workerCrashChancePerMilli, workerCrashChanceRankBias);
         BenchmarkControlMessage crashMessage = new BenchmarkControlMessage(BenchmarkControlMessageType.CRASH, null, null);
         while(true) {
             try {
                 for (int serverId : outputStreams.keySet()) {
-                    if (crashController.checkCrash(serverId)) {
+                    if (crashController.checkCrash(serverId, numWorkers)) {
                         try {
                             System.out.println("Trying to crash server " + serverId);
                             outputStreams.get(serverId).writeObject(crashMessage);
