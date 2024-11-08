@@ -41,3 +41,5 @@ build/
 slurm*.out
 *.*raftcfg*
 *.*raft*
+*.7z
+aggregated.parquet
