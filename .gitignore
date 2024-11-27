@@ -43,3 +43,4 @@ slurm*.out
 *.*raft*
 *.7z
 aggregated.parquet
+/data_analysis/figures/*
