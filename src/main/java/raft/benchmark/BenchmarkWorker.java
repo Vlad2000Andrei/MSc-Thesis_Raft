@@ -7,6 +7,7 @@ import raft.messaging.common.RaftMessage;
 import raft.network.Configuration;
 import raft.network.Node;
 import raft.servers.ClassicRaftServer;
+import raft.servers.ModifiedFitnessRaftServer;
 import raft.servers.ModifiedRaftServer;
 
 import java.io.*;
@@ -20,7 +21,8 @@ import java.util.Scanner;
 public class BenchmarkWorker implements Runnable {
     protected enum WorkerType {
         CLASSIC,
-        MODIFIED
+        MODIFIED,
+        MODIFIED_ESTIMATOR
     }
 
     private final Socket controllerSocker;
@@ -53,7 +55,7 @@ public class BenchmarkWorker implements Runnable {
 
     private void startServer() {
         try {
-            System.out.printf("[ModifiedRaftServer] Opening config file %s\n", configFilePath);
+            System.out.printf("[RaftServer] Opening config file %s\n", configFilePath);
             File configFile = new File(configFilePath);
             FileInputStream fis = new FileInputStream(configFile);
             Scanner fileScanner = new Scanner(fis);
@@ -72,6 +74,7 @@ public class BenchmarkWorker implements Runnable {
                     server = switch (workerType) {
                         case MODIFIED ->  new ModifiedRaftServer(new InetSocketAddress(peerAddress, peerPort));
                         case CLASSIC -> new ClassicRaftServer(new InetSocketAddress(peerAddress, peerPort));
+                        case MODIFIED_ESTIMATOR -> new ModifiedFitnessRaftServer(new InetSocketAddress(peerAddress, peerPort));
                         default -> {
                             System.out.println("Unknown server type: " + workerType);
                             System.exit(1);
@@ -113,6 +116,10 @@ public class BenchmarkWorker implements Runnable {
                     }
                     case START_MODIFIED -> {
                         workerType = WorkerType.MODIFIED;
+                        serverThread.start();
+                    }
+                    case START_MODIFIED_ESTIMATOR -> {
+                        workerType = WorkerType.MODIFIED_ESTIMATOR;
                         serverThread.start();
                     }
                     case LOG -> {

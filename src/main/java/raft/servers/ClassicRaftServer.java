@@ -233,9 +233,13 @@ public class ClassicRaftServer extends RaftServer {
         System.out.printf("[Election] Server %d starting election in term %d. Needed votes: %d\n", id, currentTerm, quorumSize());
 
         // Send a broadcast to all servers with RV-RPCs
-        RequestVote rvRPC = new RequestVote(currentTerm, id, log.getLastIndex(), log.getLast().term());
+        RequestVote rvRPC = makeRequestVote();
         RaftMessage rvRPCBroadcast = new RaftMessage(rvRPC);//.setTimeout(MSG_RETRY_INTERVAL);
         queueServerBroadcast(rvRPCBroadcast);
+    }
+
+    public RequestVote makeRequestVote() {
+        return new RequestVote(currentTerm, id, log.getLastIndex(), log.getLast().term(), 0);
     }
 
     public void scheduleHeartbeatMessages() {

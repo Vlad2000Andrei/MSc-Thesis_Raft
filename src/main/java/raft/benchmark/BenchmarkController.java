@@ -54,7 +54,11 @@ public class BenchmarkController implements Runnable {
                 this.serverType = BenchmarkControlMessageType.START_CLASSIC;
             } else if (serverType.equals("m") || serverType.equals("modified")) {
                 this.serverType = BenchmarkControlMessageType.START_MODIFIED;
-            } else {
+            }
+            else if (serverType.equals("f") || serverType.equals("fitness")) {
+                this.serverType = BenchmarkControlMessageType.START_MODIFIED_ESTIMATOR;
+            }
+            else {
                 System.out.println("Unknown server type " + serverType);
             }
         }
@@ -254,6 +258,10 @@ public class BenchmarkController implements Runnable {
                         case "start m", "start modif", "start modified" -> {
                             System.out.printf("Starting modified Raft on all %d workers.\n", outputStreams.size());
                             startScheduledRun(BenchmarkControlMessageType.START_MODIFIED);
+                        }
+                        case "start f", "start fit", "start fitness" -> {
+                            System.out.printf("Starting fitness Raft on all %d workers.\n", outputStreams.size());
+                            startScheduledRun(BenchmarkControlMessageType.START_MODIFIED_ESTIMATOR);
                         }
                         case "clear timer" -> {
                             clearTimer();

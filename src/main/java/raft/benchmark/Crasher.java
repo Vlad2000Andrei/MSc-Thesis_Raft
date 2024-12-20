@@ -6,6 +6,8 @@ import raft.common.ServerRole;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 public class Crasher {
@@ -18,6 +20,8 @@ public class Crasher {
     private Instant lastCrash;
     private Duration minTimeBetween;
 
+    private List<CrashObserver> crashObservers;
+
     public Crasher (double probabilityPerMilli, Duration minTime, Duration maxTime, Duration minTimeBetween) {
         threshold = (int) (1_000_000_000 * probabilityPerMilli);
         this.minTime = minTime;
@@ -26,6 +30,7 @@ public class Crasher {
         rand = new Random();
         lastCheck = Instant.now();
         lastCrash = Instant.now();
+        crashObservers = new ArrayList<>();
     }
 
     public Crasher (double probability) {
@@ -65,6 +70,7 @@ public class Crasher {
     }
 
     public void crash(ClassicRaftServer server) {
+        notifyObserversCrashed();
         long millis = rand.nextLong(minTime.toMillis(), maxTime.toMillis());
         Instant endPoint = Instant.now().plus(Duration.ofMillis(millis));
 
@@ -93,5 +99,18 @@ public class Crasher {
         if (server.getRole() == ServerRole.LEADER) server.scheduleHeartbeatMessages();
         server.clearElectionTimeout();
         lastCrash = Instant.now();
+        notifyObserversRecovered();
+    }
+
+    public void addCrashObserver(CrashObserver observer) {
+        crashObservers.add(observer);
+    }
+
+    public void notifyObserversCrashed() {
+        crashObservers.forEach(CrashObserver::notifyCrash);
+    }
+
+    public void notifyObserversRecovered() {
+        crashObservers.forEach(CrashObserver::notifyRecovery);
     }
 }
